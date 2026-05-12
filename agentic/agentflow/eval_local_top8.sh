@@ -8,8 +8,8 @@ set -e
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-MODEL_PATH=${MODEL_PATH:-"/data/AgentFlow_pro-Qwen25-7B-RL/"}
-TOKENIZER_PATH=${TOKENIZER_PATH:-"/data/models/qwen25_7b"}
+MODEL_PATH=${MODEL_PATH:-"/home/kael/data/model_cache/models/Qwen/Qwen2.5-3B-Instruct"}
+TOKENIZER_PATH=${TOKENIZER_PATH:-"/home/kael/data/model_cache/models/Qwen/Qwen2.5-3B-Instruct"}
 
 EVAL_DATA=(
     aime /data/aime-2024/aime-2024.jsonl
@@ -21,7 +21,7 @@ TRAJECTORY_DIR=${TRAJECTORY_DIR:-""}
 TP=${TP:-1}
 MEM_FRACTION=${MEM_FRACTION:-0.7}
 CTX_LEN=${CTX_LEN:-131072}
-CONCURRENCY=${CONCURRENCY:-16}
+CONCURRENCY=${CONCURRENCY:-2}
 MAX_STEPS=${MAX_STEPS:-5}
 
 TEMPERATURE=${TEMPERATURE:-0.7}
