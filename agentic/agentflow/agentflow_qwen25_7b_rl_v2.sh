@@ -128,6 +128,17 @@ OPTIMIZER_ARGS=(
 # 如不需要 wandb，注释上面 4 行并取消注释下一行：
 WANDB_ARGS=()
 
+# SwanLab arguments
+# 启用 swanlab：请确保已安装 swanlab，必要时提前完成登录或配置环境变量
+# SWANLAB_ARGS=(
+#    --use-swanlab
+#    --swanlab-project AgentFlow_pro
+#    --swanlab-experiment-name AgentFlow_pro-Qwen25-7B-RL
+#    --swanlab-mode cloud
+# )
+# 如不需要 swanlab，注释上面 5 行并取消注释下一行：
+SWANLAB_ARGS=()
+
 # SGLang arguments
 # config: ROLLOUT_TP_SIZE=1, gpu_memory_utilization=0.6
 # SGLang arguments
@@ -183,6 +194,7 @@ ray job submit --address="http://127.0.0.1:8265" \
    ${OPTIMIZER_ARGS[@]} \
    ${GRPO_ARGS[@]} \
    ${WANDB_ARGS[@]} \
+   ${SWANLAB_ARGS[@]} \
    ${PERF_ARGS[@]} \
    ${EVAL_ARGS[@]} \
    ${SGLANG_ARGS[@]} \

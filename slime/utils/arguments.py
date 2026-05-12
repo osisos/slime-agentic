@@ -1110,6 +1110,32 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                 help="Whether to turn on passrate logging, which will log the pass@n of the responses in the rollout.",
             )
             parser.add_argument("--wandb-run-id", type=str, default=None)
+            parser.add_argument(
+                "--use-swanlab",
+                action="store_true",
+                default=False,
+                help="Enable SwanLab experiment tracking. Requires: pip install swanlab.",
+            )
+            parser.add_argument(
+                "--swanlab-project",
+                type=str,
+                default=None,
+                help="SwanLab project name. Defaults to wandb-project if set, else 'slime'.",
+            )
+            parser.add_argument(
+                "--swanlab-experiment-name",
+                type=str,
+                default=None,
+                help="SwanLab experiment name. Defaults to wandb-group if set, else an auto-generated run id.",
+            )
+            parser.add_argument(
+                "--swanlab-mode",
+                type=str,
+                default=None,
+                choices=["cloud", "local", "offline", "disabled"],
+                help="SwanLab run mode: cloud, local, offline, or disabled.",
+            )
+            parser.add_argument("--swanlab-run-id", type=str, default=None)
             return parser
 
         # tensorboard
