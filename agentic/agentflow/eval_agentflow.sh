@@ -38,7 +38,7 @@ TP=${TP:-4}
 MEM_FRACTION=${MEM_FRACTION:-0.7}
 
 # SGLang context length
-CTX_LEN=${CTX_LEN:-131072}
+CTX_LEN=${CTX_LEN:-32768}
 
 # 并发评估协程数（越大越快，但受显存和服务器吞吐限制）
 CONCURRENCY=${CONCURRENCY:-16}

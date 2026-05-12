@@ -29,6 +29,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Optional
 
 import httpx
 
@@ -91,7 +92,7 @@ def load_dataset(path: str, input_key: str = "prompt", label_key: str = "label")
                         break
                 else:
                     question = str(question)
-            samples.append({"question": str(question), "label": str(label)})
+            samples.append({"idx": len(samples), "question": str(question), "label": str(label)})
     return samples
 
 
@@ -174,12 +175,14 @@ async def _eval_one(
     idx: int,
     sample_idx: int,
     total: int,
+    display_idx: Optional[int] = None,
 ) -> dict:
     async with semaphore:
+        progress_idx = idx if display_idx is None else display_idx
         try:
             out = await solver.solve(question, label=label)
         except Exception as exc:
-            logger.warning("[%d/%d] Solver exception: %s", idx + 1, total, exc)
+            logger.warning("[%d/%d] Solver exception: %s", progress_idx + 1, total, exc)
             return {
                 "idx": idx,
                 "sample_idx": sample_idx,
@@ -216,12 +219,12 @@ async def _eval_one(
                     groundtruth=label,
                 )
             except Exception as exc:
-                logger.warning("[%d/%d] Rewarder exception: %s", idx + 1, total, exc)
+                logger.warning("[%d/%d] Rewarder exception: %s", progress_idx + 1, total, exc)
                 score = 0.0
 
         logger.info(
             "[%d/%d sample=%d] score=%.1f | pred=%.40s | label=%.40s",
-            idx + 1, total, sample_idx + 1, score, pred, label,
+            progress_idx + 1, total, sample_idx + 1, score, pred, label,
         )
         return {
             "idx": idx,
@@ -308,7 +311,7 @@ async def run_eval(
             solver, rewarder,
             s["question"], s["label"],
             semaphore,
-            i, j, total,
+            int(s.get("idx", i)), j, total, i,
         )
         for i, s in enumerate(samples)
         for j in range(samples_per_prompt)
@@ -398,7 +401,7 @@ def parse_args() -> argparse.Namespace:
                           help="Tensor Parallel size per server")
     auto_grp.add_argument("--mem-fraction", type=float, default=0.7,
                           help="SGLang mem-fraction-static")
-    auto_grp.add_argument("--ctx-len",    type=int, default=65536,
+    auto_grp.add_argument("--ctx-len",    type=int, default=32768,
                           help="SGLang context length")
 
     # Evaluation data: --eval-data NAME PATH [NAME2 PATH2 ...]
@@ -409,6 +412,8 @@ def parse_args() -> argparse.Namespace:
     data_grp.add_argument("--label-key", default="label",  help="Answer field name")
     data_grp.add_argument("--num-samples", type=int, default=None,
                           help="Max samples to take per dataset (for debugging)")
+    data_grp.add_argument("--idx", type=int, default=None,
+                          help="Run only one sample by zero-based dataset index")
 
     # Sampling parameters
     samp_grp = p.add_argument_group("Sampling parameters")
@@ -466,6 +471,14 @@ def main() -> None:
     for name, path in zip(it, it):
         logger.info("Loading dataset '%s': %s", name, path)
         samples = load_dataset(path, args.input_key, args.label_key)
+        if args.idx is not None:
+            if args.idx < 0 or args.idx >= len(samples):
+                logger.error(
+                    "--idx %d is out of range for dataset '%s' with %d samples.",
+                    args.idx, name, len(samples),
+                )
+                sys.exit(1)
+            samples = [samples[args.idx]]
         if args.num_samples:
             samples = samples[:args.num_samples]
         datasets[name] = samples

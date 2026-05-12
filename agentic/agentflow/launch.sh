@@ -78,7 +78,7 @@ setsid bash -c "
         python3 -m sglang.launch_server \
             --model-path ${MODEL_CODER} \
             --port 30002 \
-            --context-length 131072 \
+            --context-length 32768 \
             --tp 2
 " > "$LOG_DIR/sglang_30002.log" 2>&1 &
 SGLANG_30002_PID=$!
