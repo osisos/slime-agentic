@@ -17,6 +17,9 @@ MODEL_PATH=${MODEL_PATH:-"/data/AgentFlow_pro-Qwen25-7B-RL/"}
 # Tokenizer 路径（通常与原始 HF 基座模型保持一致）
 TOKENIZER_PATH=${TOKENIZER_PATH:-"/data/models/qwen25_7b"}
 
+# Rewarder / Verifier / Python Coder 使用的模型
+MODEL_CODER=${MODEL_CODER:-"/data/models/qwen2.5_7b_codeer"}
+
 # 评估数据集（格式：名称 JSONL路径，可追加多组）
 EVAL_DATA=(
     aime /data/aime-2024/aime-2024.jsonl
@@ -51,12 +54,10 @@ MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-4096}
 # 调试：限制样本数（0 = 不限制）
 NUM_SAMPLES=${NUM_SAMPLES:-0}
 
-# SGLang 三个服务器端口（对应 rollout.py 中的三个引擎）
-#   PLANNER_PORT  → Planner / default  (主模型)
-#   EXECUTOR_PORT → Executor / base_generator
-#   CODER_PORT    → Verifier / python_coder
+# SGLang 服务器端口（对应 rollout.py 中的两个模型）
+#   PLANNER_PORT  → 训练/基础模型：planner / executor / base_generator / final_output
+#   CODER_PORT    → Coder 模型：rewarder / verifier / python_coder
 PLANNER_PORT=${PLANNER_PORT:-30000}
-EXECUTOR_PORT=${EXECUTOR_PORT:-30001}
 CODER_PORT=${CODER_PORT:-30002}
 
 # 是否让脚本自动拉起 SGLang（设为 1 则自动拉起，否则需要手动提前启动）
@@ -86,17 +87,15 @@ PY_ARGS=(
     --mem-fraction "${MEM_FRACTION}"
     --ctx-len     "${CTX_LEN}"
     --planner-port  "${PLANNER_PORT}"
-    --executor-port "${EXECUTOR_PORT}"
     --coder-port    "${CODER_PORT}"
 )
 
 if [ "${AUTO_START}" = "1" ]; then
-    PY_ARGS+=(--model "${MODEL_PATH}" --start-servers)
+    PY_ARGS+=(--model "${MODEL_PATH}" --coder-model "${MODEL_CODER}" --start-servers)
 else
     # 手动模式：指向已运行的服务器 URL
     PY_ARGS+=(
         --planner-url  "http://127.0.0.1:${PLANNER_PORT}/generate"
-        --executor-url "http://127.0.0.1:${EXECUTOR_PORT}/generate"
         --coder-url    "http://127.0.0.1:${CODER_PORT}/generate"
     )
 fi
@@ -113,24 +112,18 @@ fi
 
 if [ "${AUTO_START}" != "1" ]; then
     echo "============================================================"
-    echo " 手动模式：请确保以下三个 SGLang 服务器已在运行："
-    echo "   Planner  服务器 (planner / default)                    : port ${PLANNER_PORT}"
-    echo "   Executor 服务器 (executor / verifier / base_generator) : port ${EXECUTOR_PORT}"
-    echo "   Coder    服务器 (python_coder)                         : port ${CODER_PORT}"
+    echo " 手动模式：请确保以下两个 SGLang 服务器已在运行："
+    echo "   Base/Planner 服务器 (planner / executor / base_generator / final_output) : port ${PLANNER_PORT}"
+    echo "   Coder        服务器 (rewarder / verifier / python_coder)                : port ${CODER_PORT}"
     echo ""
-    echo " 快速启动示例（三个服务器分别使用不同的模型）："
+    echo " 快速启动示例："
     echo "   python -m sglang.launch_server \\"
     echo "     --model-path ${MODEL_PATH} --port ${PLANNER_PORT} \\"
     echo "     --tp ${TP} --mem-fraction-static ${MEM_FRACTION} \\"
     echo "     --context-length ${CTX_LEN} --trust-remote-code &"
     echo ""
     echo "   python -m sglang.launch_server \\"
-    echo "     --model-path Qwen/Qwen2.5-7B --port ${EXECUTOR_PORT} \\"
-    echo "     --tp ${TP} --mem-fraction-static ${MEM_FRACTION} \\"
-    echo "     --context-length ${CTX_LEN} --trust-remote-code &"
-    echo ""
-    echo "   python -m sglang.launch_server \\"
-    echo "     --model-path /data/models/qwen2.5_7b_codeer --port ${CODER_PORT} \\"
+    echo "     --model-path ${MODEL_CODER} --port ${CODER_PORT} \\"
     echo "     --tp ${TP} --mem-fraction-static ${MEM_FRACTION} \\"
     echo "     --context-length ${CTX_LEN} --trust-remote-code &"
     echo "============================================================"

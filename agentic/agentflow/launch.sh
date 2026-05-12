@@ -1,6 +1,6 @@
 #!/bin/bash
 # AgentFlow 一键启动脚本
-# 自动启动训练及所有依赖的 SGLang 推理服务
+# 自动启动训练及训练依赖的 Coder/Rewarder SGLang 推理服务
 
 set -e
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
@@ -13,7 +13,6 @@ LOG_DIR="/tmp/agentflow_logs"
 mkdir -p "$LOG_DIR"
 
 # 模型路径（本地离线目录）
-MODEL_BASE="/data/models/qwen25_7b"
 MODEL_CODER="/data/models/qwen2.5_7b_codeer"
 
 log() { echo "[$(date '+%H:%M:%S')] $*"; }
@@ -68,40 +67,26 @@ log "训练进程 PID=$TRAIN_PID，日志: $LOG_DIR/train.log"
 # Step 3: 等待 ray
 log "等待 ray dashboard 就绪..."
 wait_port "ray-dashboard" 127.0.0.1 8265 120
-log "ray 已就绪，开始启动 SGLang 服务..."
+log "ray 已就绪，开始启动 Coder/Rewarder SGLang 服务..."
 
 # Step 4: 启动 SGLang 服务
 # 用 setsid 创建独立会话，防止 launch.sh 退出/Ctrl+C 时信号传播杀掉 SGLang
-setsid bash -c "
-    export CUDA_VISIBLE_DEVICES=6,7
-    export SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1
-    conda run -n sglang --no-capture-output \
-        python3 -m sglang.launch_server \
-            --model-path ${MODEL_BASE} \
-            --port 30000 \
-            --context-length 131072 \
-            --tp 2
-" > "$LOG_DIR/sglang_30000.log" 2>&1 &
-SGLANG_30000_PID=$!
-log "Qwen2.5-7B-Instruct  PID=$SGLANG_30000_PID (GPU 6,7, port 30000)，日志: $LOG_DIR/sglang_30000.log"
-
 setsid bash -c "
     export CUDA_VISIBLE_DEVICES=4,5
     export SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1
     conda run -n sglang --no-capture-output \
         python3 -m sglang.launch_server \
             --model-path ${MODEL_CODER} \
-            --port 30001 \
+            --port 30002 \
             --context-length 131072 \
             --tp 2
-" > "$LOG_DIR/sglang_30001.log" 2>&1 &
-SGLANG_30001_PID=$!
-log "Qwen2.5-Coder-7B     PID=$SGLANG_30001_PID (GPU 4,5, port 30001)，日志: $LOG_DIR/sglang_30001.log"
+" > "$LOG_DIR/sglang_30002.log" 2>&1 &
+SGLANG_30002_PID=$!
+log "Qwen2.5-Coder-7B     PID=$SGLANG_30002_PID (GPU 4,5, port 30002; rewarder/python_coder/verifier)，日志: $LOG_DIR/sglang_30002.log"
 
 # Step 5: 等待 SGLang 就绪
 log "等待 SGLang 服务启动（模型加载可能需要几分钟）..."
-wait_port "SGLang-30000" 127.0.0.1 30000 600
-wait_port "SGLang-30001" 127.0.0.1 30001 600
+wait_port "SGLang-30002" 127.0.0.1 30002 600
 log "所有 SGLang 服务已就绪，训练正在进行中。"
 log "训练日志: tail -f $LOG_DIR/train.log"
 

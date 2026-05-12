@@ -236,7 +236,6 @@ async def _eval_one(
 async def run_eval(
     samples: list[dict],
     planner_url: str,
-    executor_url: str,
     coder_url: str,
     tokenizer,
     sampling_params: dict,
@@ -246,13 +245,11 @@ async def run_eval(
 ) -> list[dict]:
     """Run Solver + Rewarder concurrently over all samples and return a list of results.
 
-    The three engines are consistent with rollout.py:
+    The engines are consistent with rollout.py:
       planner_engine  -> "planner" / "default"
-                         corresponds to rollout.py's engine (sglang_router)
-      executor_engine -> "executor" / "verifier" / "base_generator" / rewarder
-                         corresponds to rollout.py's generate_engine (hardcoded port 30000)
-      coder_engine    -> "python_coder"
-                         corresponds to rollout.py's coder_engine (hardcoded port 30001)
+                         also used for executor / base_generator / final_output
+      coder_engine    -> "verifier" / "python_coder" / rewarder
+                         corresponds to rollout.py's coder_engine (port 30002)
     """
     # Ensure the global HTTP client for slime http_utils is initialized
     # (the training path does this via the framework; eval must trigger it manually)
@@ -260,7 +257,7 @@ async def run_eval(
 
     max_new_tokens = sampling_params.get("max_new_tokens", 2048)
 
-    # Planner: main model, responsible for plan / next_step / final_output; thinking disabled
+    # Planner/base model: plan / next_step / executor / base_generator / final_output
     planner_engine = SGLangEngine(
         url=planner_url,
         tokenizer=tokenizer,
@@ -268,23 +265,15 @@ async def run_eval(
         max_new_tokens=max_new_tokens,
         enable_thinking=False,
     )
-    # Executor / base_generator: general-purpose generation engine
-    executor_engine = SGLangEngine(
-        url=executor_url,
-        tokenizer=tokenizer,
-        sampling_params=sampling_params,
-        max_new_tokens=max_new_tokens,
-    )
-    # Coder / python_coder: code generation engine
+    # Coder model: verifier / python_coder / rewarder
     coder_engine = SGLangEngine(
         url=coder_url,
         tokenizer=tokenizer,
         sampling_params=sampling_params,
         max_new_tokens=max_new_tokens,
     )
-    # Rewarder consistent with reward_func: uses generate_engine (corresponding to executor_url)
     rewarder_engine = SGLangEngine(
-        url=executor_url,
+        url=coder_url,
         tokenizer=tokenizer,
         sampling_params={},
         max_new_tokens=2048,
@@ -293,11 +282,11 @@ async def run_eval(
     engine_map = {
         "default":        planner_engine,
         "planner":        planner_engine,
-        "executor":       executor_engine,
-        "verifier":       executor_engine,
-        "base_generator": executor_engine,
+        "executor":       planner_engine,
+        "verifier":       coder_engine,
+        "base_generator": planner_engine,
         "python_coder":   coder_engine,
-        "final_output":   executor_engine,  # Consistent with training: always use base model to generate the answer
+        "final_output":   planner_engine,
     }
 
     solver = Solver(
@@ -335,32 +324,29 @@ def parse_args() -> argparse.Namespace:
     model_grp = p.add_argument_group("Model configuration")
     model_grp.add_argument("--model", default=None,
                            help="HF model path (required when --start-servers is used)")
+    model_grp.add_argument("--coder-model", default=None,
+                           help="HF coder model path (required when --start-servers is used)")
     model_grp.add_argument("--tokenizer", default=None,
                            help="HF tokenizer path (defaults to --model)")
 
     # Server connection (used when the service is already running)
-    # Corresponds to the three engines in rollout.py:
-    #   planner_url   -> engine          (sglang_router / main model)
-    #   executor_url  -> generate_engine (port 30000, executor / verifier / base_generator / final_output)
-    #   coder_url     -> coder_engine    (port 30001, python_coder)
+    # Corresponds to the engines in rollout.py:
+    #   planner_url  -> base/trained model (planner / executor / base_generator / final_output)
+    #   coder_url    -> coder model        (rewarder / verifier / python_coder)
     srv_grp = p.add_argument_group("Server connection")
     srv_grp.add_argument("--planner-url",  default="http://127.0.0.1:30000/generate",
-                         help="SGLang generate URL for the Planner / default engine")
-    srv_grp.add_argument("--executor-url", default="http://127.0.0.1:30001/generate",
-                         help="SGLang generate URL for the Executor / base_generator engine")
+                         help="SGLang generate URL for the base/trained model")
     srv_grp.add_argument("--coder-url",    default="http://127.0.0.1:30002/generate",
-                         help="SGLang generate URL for the Verifier / python_coder engine")
+                         help="SGLang generate URL for the rewarder / verifier / python_coder engine")
 
     # Auto-launch servers
     auto_grp = p.add_argument_group("Auto-launch SGLang servers")
     auto_grp.add_argument("--start-servers", action="store_true",
-                          help="Auto-launch three SGLang servers (requires --model)")
+                          help="Auto-launch base/trained and coder SGLang servers")
     auto_grp.add_argument("--planner-port",  type=int, default=30000,
-                          help="Planner server port")
-    auto_grp.add_argument("--executor-port", type=int, default=30001,
-                          help="Executor server port")
+                          help="Base/trained model server port")
     auto_grp.add_argument("--coder-port",    type=int, default=30002,
-                          help="Coder server port")
+                          help="Coder/rewarder server port")
     auto_grp.add_argument("--tp",         type=int, default=4,
                           help="Tensor Parallel size per server")
     auto_grp.add_argument("--mem-fraction", type=float, default=0.7,
@@ -436,36 +422,32 @@ def main() -> None:
         logger.info("  → %d samples", len(samples))
 
     # ── Servers ─────────────────────────────────────────────────────────────────
-    # Three engine URL mappings (consistent with rollout.py):
-    #   planner_url  → sglang_router / primary model (planner / default)
-    #   executor_url → generate_engine               (executor / base_generator)
-    #   coder_url    → coder_engine                  (verifier / python_coder)
+    # Engine URL mappings (consistent with rollout.py):
+    #   planner_url → base/trained model (planner / executor / base_generator / final_output)
+    #   coder_url   → coder model        (rewarder / verifier / python_coder)
     servers: list[SGLangServer] = []
     planner_url  = args.planner_url
-    executor_url = args.executor_url
     coder_url    = args.coder_url
 
     if args.start_servers:
         if not args.model:
             logger.error("--start-servers requires --model to be specified.")
             sys.exit(1)
+        if not args.coder_model:
+            logger.error("--start-servers requires --coder-model to be specified.")
+            sys.exit(1)
 
         planner_srv = SGLangServer(
             args.model, args.planner_port, args.tp,
             args.mem_fraction, args.ctx_len,
         )
-        executor_srv = SGLangServer(
-            args.model, args.executor_port, args.tp,
-            args.mem_fraction, args.ctx_len,
-        )
         coder_srv = SGLangServer(
-            args.model, args.coder_port, args.tp,
+            args.coder_model, args.coder_port, args.tp,
             args.mem_fraction, args.ctx_len,
         )
-        servers.extend([planner_srv, executor_srv, coder_srv])
+        servers.extend([planner_srv, coder_srv])
 
         planner_url  = f"http://127.0.0.1:{args.planner_port}/generate"
-        executor_url = f"http://127.0.0.1:{args.executor_port}/generate"
         coder_url    = f"http://127.0.0.1:{args.coder_port}/generate"
 
         for srv in servers:
@@ -495,7 +477,6 @@ def main() -> None:
                 run_eval(
                     samples=samples,
                     planner_url=planner_url,
-                    executor_url=executor_url,
                     coder_url=coder_url,
                     tokenizer=tokenizer,
                     sampling_params=sampling_params,

@@ -119,15 +119,8 @@ async def generate(args: Any, sample: Sample, sampling_params: dict[str, Any], e
         sample.metadata = {}
     sample.metadata["original_question"] = question
 
-    generate_engine = SGLangEngine(
-        url="http://127.0.0.1:30000/generate",
-        tokenizer=state.tokenizer,
-        sampling_params=sampling_params,
-        max_new_tokens=4096,
-    )
-
     coder_engine = SGLangEngine(
-        url="http://127.0.0.1:30001/generate",
+        url="http://127.0.0.1:30002/generate",
         tokenizer=state.tokenizer,
         sampling_params=sampling_params,
         max_new_tokens=4096,
@@ -136,11 +129,11 @@ async def generate(args: Any, sample: Sample, sampling_params: dict[str, Any], e
         engine_map = {
             "default":       engine,
             "planner":       engine,
-            "executor":      generate_engine,
-            "verifier":      generate_engine,
-            "base_generator": generate_engine,
+            "executor":      engine,
+            "verifier":      coder_engine,
+            "base_generator": engine,
             "python_coder":  coder_engine,
-            "final_output":  generate_engine,  # Always use the base model to generate the answer; excluded from training
+            "final_output":  engine,
         }
         solver = Solver(engine_map=engine_map, tools_dir=str(TOOLS_DIR), trajectory_dir=str(TRAJECTORY_DIR) if TRAJECTORY_DIR else None)
         label = str(sample.label) if sample.label is not None else None
@@ -210,12 +203,11 @@ async def reward_func(args: Any, sample: Sample, **kwargs) -> dict:
     """
     Uses Rewarder.compute_reward (LLM judge) to compare the model answer against the ground truth.
     Uses the original question stored in metadata rather than the prompt overwritten by the solver.
-    The Rewarder uses the fixed generate_engine (port 30000) instead of the training planner engine,
-    ensuring the reward signal remains stable throughout RL training.
+    The Rewarder uses the fixed coder engine (port 30002), shared with python_coder.
     """
     state = GenerateState(args)
     engine = SGLangEngine(
-        url="http://127.0.0.1:30000/generate",
+        url="http://127.0.0.1:30002/generate",
         tokenizer=state.tokenizer,
         sampling_params={},
         max_new_tokens=2048,
