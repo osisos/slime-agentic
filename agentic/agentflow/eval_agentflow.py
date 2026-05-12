@@ -389,7 +389,7 @@ def parse_args() -> argparse.Namespace:
     # Auto-launch servers
     auto_grp = p.add_argument_group("Auto-launch SGLang servers")
     auto_grp.add_argument("--start-servers", action="store_true",
-                          help="Auto-launch base/trained and coder SGLang servers")
+                          help="Auto-launch SGLang server(s). If planner/coder ports match, one server is reused.")
     auto_grp.add_argument("--planner-port",  type=int, default=30000,
                           help="Base/trained model server port")
     auto_grp.add_argument("--coder-port",    type=int, default=30002,
@@ -483,22 +483,25 @@ def main() -> None:
         if not args.model:
             logger.error("--start-servers requires --model to be specified.")
             sys.exit(1)
-        if not args.coder_model:
-            logger.error("--start-servers requires --coder-model to be specified.")
+        if args.coder_port != args.planner_port and not args.coder_model:
+            logger.error("--start-servers requires --coder-model unless --coder-port equals --planner-port.")
             sys.exit(1)
 
         planner_srv = SGLangServer(
             args.model, args.planner_port, args.tp,
             args.mem_fraction, args.ctx_len,
         )
-        coder_srv = SGLangServer(
-            args.coder_model, args.coder_port, args.tp,
-            args.mem_fraction, args.ctx_len,
-        )
-        servers.extend([planner_srv, coder_srv])
+        servers.append(planner_srv)
 
-        planner_url  = f"http://127.0.0.1:{args.planner_port}/generate"
-        coder_url    = f"http://127.0.0.1:{args.coder_port}/generate"
+        if args.coder_port != args.planner_port:
+            coder_srv = SGLangServer(
+                args.coder_model, args.coder_port, args.tp,
+                args.mem_fraction, args.ctx_len,
+            )
+            servers.append(coder_srv)
+
+        planner_url = f"http://127.0.0.1:{args.planner_port}/generate"
+        coder_url = f"http://127.0.0.1:{args.coder_port}/generate"
 
         for srv in servers:
             if not srv.wait_ready(timeout=300):
