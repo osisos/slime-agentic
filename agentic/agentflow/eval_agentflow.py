@@ -170,9 +170,9 @@ async def _eval_one(
     rewarder: Rewarder,
     question: str,
     label: str,
-    sampling_params: dict,
     semaphore: asyncio.Semaphore,
     idx: int,
+    sample_idx: int,
     total: int,
 ) -> dict:
     async with semaphore:
@@ -182,6 +182,7 @@ async def _eval_one(
             logger.warning("[%d/%d] Solver exception: %s", idx + 1, total, exc)
             return {
                 "idx": idx,
+                "sample_idx": sample_idx,
                 "question": question,
                 "label": label,
                 "pred": "",
@@ -193,6 +194,7 @@ async def _eval_one(
         if out is None:
             return {
                 "idx": idx,
+                "sample_idx": sample_idx,
                 "question": question,
                 "label": label,
                 "pred": "",
@@ -218,11 +220,12 @@ async def _eval_one(
                 score = 0.0
 
         logger.info(
-            "[%d/%d] score=%.1f | pred=%.40s | label=%.40s",
-            idx + 1, total, score, pred, label,
+            "[%d/%d sample=%d] score=%.1f | pred=%.40s | label=%.40s",
+            idx + 1, total, sample_idx + 1, score, pred, label,
         )
         return {
             "idx": idx,
+            "sample_idx": sample_idx,
             "question": question,
             "label": label,
             "pred": pred,
@@ -242,6 +245,7 @@ async def run_eval(
     concurrency: int,
     max_steps: int,
     trajectory_dir: str | None,
+    samples_per_prompt: int = 1,
 ) -> list[dict]:
     """Run Solver + Rewarder concurrently over all samples and return a list of results.
 
@@ -303,13 +307,56 @@ async def run_eval(
         _eval_one(
             solver, rewarder,
             s["question"], s["label"],
-            sampling_params, semaphore,
-            i, total,
+            semaphore,
+            i, j, total,
         )
         for i, s in enumerate(samples)
+        for j in range(samples_per_prompt)
     ]
     results = await asyncio.gather(*tasks)
-    return sorted(results, key=lambda r: r["idx"])  # Preserve original order
+    return sorted(results, key=lambda r: (r["idx"], r["sample_idx"]))  # Preserve original order
+
+
+def aggregate_topk_results(results: list[dict], samples_per_prompt: int) -> dict:
+    """Aggregate repeated samples per prompt and compute pass@k/top-k success."""
+    grouped: dict[int, list[dict]] = {}
+    for result in results:
+        grouped.setdefault(result["idx"], []).append(result)
+
+    details = []
+    for idx in sorted(grouped):
+        attempts = sorted(grouped[idx], key=lambda r: r["sample_idx"])
+        first = attempts[0]
+        best_score = max((float(a.get("score", 0.0)) for a in attempts), default=0.0)
+        solved = any(float(a.get("score", 0.0)) > 0 for a in attempts)
+        details.append({
+            "idx": idx,
+            "question": first["question"],
+            "label": first["label"],
+            "solved": solved,
+            "best_score": best_score,
+            "num_correct_samples": sum(1 for a in attempts if float(a.get("score", 0.0)) > 0),
+            "num_samples": len(attempts),
+            "attempts": attempts,
+        })
+
+    num_total = len(details)
+    num_solved = sum(1 for d in details if d["solved"])
+    pass_at_k = num_solved / num_total if num_total else 0.0
+    per_sample_scores = [float(r.get("score", 0.0)) for r in results]
+    sample_accuracy = sum(per_sample_scores) / len(per_sample_scores) if per_sample_scores else 0.0
+
+    return {
+        "pass_at_k": pass_at_k,
+        "topk_accuracy": pass_at_k,
+        "sample_accuracy": sample_accuracy,
+        "num_solved": num_solved,
+        "num_total": num_total,
+        "num_attempts": len(results),
+        "samples_per_prompt": samples_per_prompt,
+        "details": details,
+        "flat_details": results,
+    }
 
 
 # ── CLI argument parsing ───────────────────────────────────────────────────────
@@ -368,6 +415,9 @@ def parse_args() -> argparse.Namespace:
     samp_grp.add_argument("--temperature",    type=float, default=0.7)
     samp_grp.add_argument("--top-p",          type=float, default=0.95)
     samp_grp.add_argument("--max-new-tokens", type=int,   default=4096)
+    samp_grp.add_argument("--samples-per-prompt", "--n-samples-per-prompt",
+                          dest="samples_per_prompt", type=int, default=1,
+                          help="Number of independent samples to draw for each prompt")
 
     # Inference control
     infer_grp = p.add_argument_group("Inference control")
@@ -483,24 +533,48 @@ def main() -> None:
                     concurrency=args.concurrency,
                     max_steps=args.max_steps,
                     trajectory_dir=args.trajectory_dir,
+                    samples_per_prompt=args.samples_per_prompt,
                 )
             )
 
             elapsed = time.time() - t0
-            scores = [r["score"] for r in results]
-            accuracy = sum(scores) / len(scores) if scores else 0.0
+            aggregate = aggregate_topk_results(results, args.samples_per_prompt)
 
-            logger.info(
-                "Dataset '%s': accuracy=%.3f (%d/%d) elapsed %.1fs",
-                dataset_name, accuracy, int(sum(scores)), len(scores), elapsed,
-            )
+            if args.samples_per_prompt == 1:
+                logger.info(
+                    "Dataset '%s': accuracy=%.3f (%d/%d) elapsed %.1fs",
+                    dataset_name,
+                    aggregate["sample_accuracy"],
+                    aggregate["num_solved"],
+                    aggregate["num_total"],
+                    elapsed,
+                )
+            else:
+                logger.info(
+                    "Dataset '%s': pass@%d/top%d=%.3f (%d/%d) sample_acc=%.3f elapsed %.1fs",
+                    dataset_name,
+                    args.samples_per_prompt,
+                    args.samples_per_prompt,
+                    aggregate["pass_at_k"],
+                    aggregate["num_solved"],
+                    aggregate["num_total"],
+                    aggregate["sample_accuracy"],
+                    elapsed,
+                )
 
             all_results[dataset_name] = {
-                "accuracy":       accuracy,
-                "num_correct":    int(sum(scores)),
-                "num_total":      len(scores),
+                "accuracy":       aggregate["pass_at_k"],
+                "pass_at_k":      aggregate["pass_at_k"],
+                "topk_accuracy":  aggregate["topk_accuracy"],
+                "sample_accuracy": aggregate["sample_accuracy"],
+                "num_correct":    aggregate["num_solved"],
+                "num_solved":     aggregate["num_solved"],
+                "num_total":      aggregate["num_total"],
+                "num_attempts":   aggregate["num_attempts"],
+                "samples_per_prompt": aggregate["samples_per_prompt"],
                 "elapsed_seconds": round(elapsed, 2),
-                "details":        results,
+                "details":        aggregate["details"],
+                "flat_details":   aggregate["flat_details"],
             }
 
     finally:
@@ -518,11 +592,20 @@ def main() -> None:
     print("Evaluation Results Summary")
     print("=" * 60)
     for name, res in all_results.items():
-        print(
-            f"  {name:20s}  {res['accuracy']:.1%}"
-            f"  ({res['num_correct']}/{res['num_total']})"
-            f"  {res['elapsed_seconds']:.1f}s"
-        )
+        if res["samples_per_prompt"] == 1:
+            print(
+                f"  {name:20s}  {res['accuracy']:.1%}"
+                f"  ({res['num_correct']}/{res['num_total']})"
+                f"  {res['elapsed_seconds']:.1f}s"
+            )
+        else:
+            print(
+                f"  {name:20s}  pass@{res['samples_per_prompt']}={res['pass_at_k']:.1%}"
+                f"  ({res['num_solved']}/{res['num_total']})"
+                f"  sample_acc={res['sample_accuracy']:.1%}"
+                f"  attempts={res['num_attempts']}"
+                f"  {res['elapsed_seconds']:.1f}s"
+            )
     print("=" * 60)
 
 
