@@ -1,7 +1,7 @@
 import sys
 import platform
 
-from setuptools import find_packages, setup
+from setuptools import find_packages, setupc
 from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
 

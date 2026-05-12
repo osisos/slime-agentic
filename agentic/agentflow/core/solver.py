@@ -158,6 +158,7 @@ class Solver:
             trajectory["steps"].append({
                 "step_count": step_count,
                 "step_prompt": next_step.prompt_text,
+                "prompt": next_step.prompt_text,
                 "next_step": next_step.response,
                 "tool_name": tool_name,
                 "sub_goal": sub_goal,

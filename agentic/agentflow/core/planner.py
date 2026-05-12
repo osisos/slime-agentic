@@ -78,10 +78,10 @@ class Planner:
         return available_tools, toolbox_metadata
 
     def _build_prompt(self, question: str) -> str:
-        return f"""Task: Analyze the given query to determine necessary skills and tools.
+        return f"""
+Task: Analyze the given query to determine necessary skills and tools.
 
-Inputs:
-- Query: {question}
+Tools:
 - Available tools: {self.available_tools}
 - Metadata for tools: {self.toolbox_metadata}
 
@@ -91,6 +91,8 @@ Instructions:
 3. For each skill and tool, explain how it helps address the query.
 4. Note any additional considerations.
 
+Input:
+- Query: {question}
 """
 
 
@@ -136,6 +138,49 @@ Rules:
 - The response must end with the Context, Sub-Goal, and Tool Name sections in that order, with no extra content.
 
 """
+    
+    def _build_next_step_content_v2(
+        self,
+        query: str,
+        query_analysis: str,
+        memory: Memory,
+        step_count: int,
+        max_step_count: int,
+    ) -> str:
+        """Build the user message content for the next_step turn (shared by generate_next_step and get_next_step_prompt_text)."""
+        return f"""
+Task: Determine the optimal next step to address the query using available tools and previous steps.
+Tools:
+- **Available Tools:** {self.available_tools}
+- **Toolbox Metadata:** {self.toolbox_metadata}
+
+Instructions:
+1. Analyze the dynamic context (query & previous steps) against the tools in the static context.
+2. Select the **single best tool** for the next step.
+3. Formulate a specific, achievable **sub-goal** for that tool.
+4. Extract all necessary **context** (data, file names, variables) for the tool to function.
+
+Response Format:
+You must respond STRICTLY using the XML format below. Do NOT include any conversational text, explanations, or markdown formatting (such as ```xml) before or after the XML block.
+
+<next_step>
+    <justification>Explain your choice of tool and sub-goal based on previous steps.</justification>
+    <context>Provide all necessary information and parameters for the tool.</context>
+    <sub_goal>State the specific objective for the tool.</sub_goal>
+    <tool_name>State the exact name of the selected tool.</tool_name>
+</next_step>
+
+Rules:
+- Select only ONE tool.
+- The sub-goal must be directly achievable by the selected tool.
+- The <context> section must contain all information the tool needs to function.
+- ONLY output valid XML.
+
+Context:
+- **Query:** {query}
+- **Query Analysis:** {query_analysis}
+- **Previous Steps:** {memory.get_actions()}
+"""
 
 
 
@@ -157,15 +202,16 @@ Rules:
         prompt_generate_final_output = f"""
 Task: Generate the final output based on the query and the results from all tools used.
 
+Instructions:
+1. Review the query and the results from all tool executions.
+2. Incorporate the relevant information to create a coherent, step-by-step final output.
+3. You MUST end your response with the final answer enclosed in \\boxed{{}}. For example: \\boxed{{42}}.
+
 Context:
 - **Initial Analysis:** {query_analysis}
 - **Query:** {question}
 - **Actions Taken:** {memory.get_actions()}
 
-Instructions:
-1. Review the query and the results from all tool executions.
-2. Incorporate the relevant information to create a coherent, step-by-step final output.
-3. You MUST end your response with the final answer enclosed in \\boxed{{}}. For example: \\boxed{{42}}.
 """
         messages = [{"role": "user", "content": prompt_generate_final_output}]
         engine = llm_engine if llm_engine is not None else self.llm_engine
