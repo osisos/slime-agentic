@@ -8,7 +8,7 @@ from .llm_engine import GenerationOutput
 from .planner import Planner
 from .executor import Executor
 from .verifier import Verifier
-from .formatters import extract_context_subgoal_and_tool
+from .formatters import extract_context_subgoal_and_tool_v2
 from .memory import Memory
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ class Solver:
             )
             finish_reason = next_step.finish_reason
 
-            context, sub_goal, tool_name = extract_context_subgoal_and_tool(next_step.response)
+            context, sub_goal, tool_name = extract_context_subgoal_and_tool_v2(next_step.response)
 
             # ── Execute tool (not included in training sequences); result written to memory ──
             try:

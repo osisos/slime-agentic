@@ -145,7 +145,7 @@ SWANLAB_ARGS=()
 SGLANG_ARGS=(
    --rollout-num-gpus-per-engine 4
    --sglang-mem-fraction-static 0.75
-   --sglang-context-length 131072
+   --sglang-context-length 32768
 )
 
 # Misc arguments

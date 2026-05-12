@@ -192,7 +192,7 @@ Context:
         step_count: int,
         max_step_count: int,
     ) -> GenerationOutput:
-        content = self._build_next_step_content(query, query_analysis, memory, step_count, max_step_count)
+        content = self._build_next_step_content_v2(query, query_analysis, memory, step_count, max_step_count)
         messages = [{"role": "user", "content": content}]
         return await self.llm_engine.generate(messages)
 

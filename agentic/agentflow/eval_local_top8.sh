@@ -20,8 +20,8 @@ TRAJECTORY_DIR=${TRAJECTORY_DIR:-""}
 
 TP=${TP:-1}
 MEM_FRACTION=${MEM_FRACTION:-0.7}
-CTX_LEN=${CTX_LEN:-131072}
-CONCURRENCY=${CONCURRENCY:-2}
+CTX_LEN=${CTX_LEN:-32768}
+CONCURRENCY=${CONCURRENCY:-16}
 MAX_STEPS=${MAX_STEPS:-5}
 
 TEMPERATURE=${TEMPERATURE:-0.7}
@@ -31,6 +31,9 @@ SAMPLES_PER_PROMPT=${SAMPLES_PER_PROMPT:-8}
 
 # Debug limit for prompts, not total attempts. 0 = no limit.
 NUM_SAMPLES=${NUM_SAMPLES:-0}
+
+# Run only one sample by zero-based dataset index. Empty = all samples.
+IDX=${IDX:-""}
 
 PLANNER_PORT=${PLANNER_PORT:-30000}
 CODER_PORT=${PLANNER_PORT}
@@ -81,6 +84,10 @@ if [ "${NUM_SAMPLES}" -gt 0 ] 2>/dev/null; then
     PY_ARGS+=(--num-samples "${NUM_SAMPLES}")
 fi
 
+if [ -n "${IDX}" ]; then
+    PY_ARGS+=(--idx "${IDX}")
+fi
+
 if [ "${AUTO_START}" != "1" ]; then
     echo "============================================================"
     echo " 手动模式：请确保同一个 SGLang 服务器已在运行："
@@ -109,6 +116,9 @@ echo "  并发数     : ${CONCURRENCY}"
 echo "  最大步数   : ${MAX_STEPS}"
 echo "  温度       : ${TEMPERATURE}"
 echo "  每题采样数 : ${SAMPLES_PER_PROMPT}"
+if [ -n "${IDX}" ]; then
+    echo "  单条样本   : ${IDX}"
+fi
 echo ""
 
 python3 "${SCRIPT_DIR}/eval_agentflow.py" "${PY_ARGS[@]}"
