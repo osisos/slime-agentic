@@ -55,7 +55,7 @@ def custom_convert(args, samples):
 
     for i, sample in enumerate(samples):
         meta = sample.train_metadata
-        if meta is None or "turns" not in meta:
+        if meta is None or not any(key in meta for key in ("turns", "base_tool_ios", "executor_tool_ios")):
             tokens_list.append(sample.tokens)
             response_lengths.append(sample.response_length)
             lm = sample.loss_mask if sample.loss_mask is not None else [1] * sample.response_length
@@ -71,7 +71,12 @@ def custom_convert(args, samples):
                 has_rollout_log_probs = True
             continue
 
-        turns = meta["turns"]
+        turns = []
+        turns.extend(meta.get("turns") or [])
+        turns.extend(meta.get("executor_tool_ios") or [])
+        turns.extend(meta.get("base_tool_ios") or [])
+        if not turns:
+            continue
         # Divide by T_i so that summing over turns gives (1/T_i) * sum_t,
         # matching the J_Flow-GRPO objective which averages across turns.
         norm_reward = normalized_rewards[i] / len(turns)

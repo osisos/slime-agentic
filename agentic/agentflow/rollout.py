@@ -152,8 +152,15 @@ async def generate(args: Any, sample: Sample, sampling_params: dict[str, Any], e
         sample.status = Sample.Status.TRUNCATED if out.finish_reason == "length" else Sample.Status.COMPLETED
         sample.metadata["final_output"] = out.final_output or ""
 
+        train_metadata = {}
         if out.turns:
-            sample.train_metadata = {"turns": out.turns}
+            train_metadata["turns"] = out.turns
+        if out.base_tool_ios:
+            train_metadata["base_tool_ios"] = out.base_tool_ios
+        if out.executor_tool_ios:
+            train_metadata["executor_tool_ios"] = out.executor_tool_ios
+        if train_metadata:
+            sample.train_metadata = train_metadata
 
     except Exception:
         traceback.print_exc()

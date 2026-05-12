@@ -20,6 +20,13 @@ class GenerationOutput:
     # Multi-turn split: each turn is an independent training sequence;
     # custom_convert uses this field to unroll turns
     turns: list[dict] | None = None
+    # base generate tools 轮次输出输出，可以单独采集做训练，需要包含
+    # token_ids, log_probs, loss_mask, prompt, response
+    base_tool_ios: list[dict] | None = None
+
+    #
+    executor_tool_ios: list[dict] | None = None
+
 
 
 class SGLangEngine:

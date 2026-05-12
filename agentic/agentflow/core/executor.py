@@ -5,7 +5,7 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from .llm_engine import SGLangEngine
+from .llm_engine import GenerationOutput, SGLangEngine
 
 # Tool name mapping: Static fallback mapping (long external names to internal)
 TOOL_NAME_MAPPING_LONG = {
@@ -36,6 +36,22 @@ class Executor:
         # key can be TOOL_NAME (external name), class_name, or dir_name; falls back to llm_engine if not found
         self.tools_engine_map: dict[str, Any] = tools_engine_map or {}
         self.available_tools = available_tools
+        self.last_command_generation_turn: dict | None = None
+        self.last_tool_generation_turn: dict | None = None
+
+    @staticmethod
+    def generation_to_turn(source: str, out: GenerationOutput) -> dict:
+        return {
+            "source": source,
+            "tokens": list(out.prompt_token_ids) + list(out.token_ids),
+            "token_ids": list(out.token_ids),
+            "response_length": len(out.token_ids),
+            "loss_mask": [1] * len(out.token_ids),
+            "rollout_log_probs": list(out.log_probs),
+            "log_probs": list(out.log_probs),
+            "prompt": out.prompt_text,
+            "response": out.response,
+        }
 
     def _extract_command(self, response: Any) -> str:
         def normalize_code(code: str) -> str:
@@ -82,6 +98,7 @@ class Executor:
         return normalize_code(command)
 
     async def generate_tool_command(self, query: str, context: str, sub_goal: str, tool_name: str, tool_metadata: dict, step_count: int) -> str:
+        self.last_command_generation_turn = None
         prompt_generate_tool_command = f"""
 Task: Generate a precise command to execute the selected tool.
 
@@ -124,6 +141,7 @@ execution = tool.execute(query=\"\"\"Find the number of intersections of y = 4*g
 """
         messages = [{"role": "user", "content": prompt_generate_tool_command}]
         tool_cmd_out = await self.llm_engine.generate(messages)
+        self.last_command_generation_turn = self.generation_to_turn("executor", tool_cmd_out)
         command = self._extract_command(tool_cmd_out.response)
         return command, tool_cmd_out
 
@@ -228,6 +246,7 @@ execution = tool.execute(query=\"\"\"Find the number of intersections of y = 4*g
         Never raises — returns an error string on failure so the solver can
         continue to the next step instead of crashing the entire rollout.
         """
+        self.last_tool_generation_turn = None
         try:
             tool = self._load_tool(tool_name, tools_dir)
         except Exception as exc:
@@ -240,6 +259,7 @@ execution = tool.execute(query=\"\"\"Find the number of intersections of y = 4*g
 
         try:
             execution = await tool.execute(**kwargs)
+            self.last_tool_generation_turn = getattr(tool, "last_generation_turn", None)
             return execution
         except Exception as exc:
             return f"Tool execution error ({tool_name}): {exc}"

@@ -23,9 +23,20 @@ class Base_Generator_Tool(BaseTool):
 
         )
         self.llm_engine = llm_engine
+        self.last_generation_turn = None
 
     async def execute(self, query: str) -> str:
         messages = [{"role": "user", "content": query}]
         out = await self.llm_engine.generate(messages)
+        self.last_generation_turn = {
+            "source": "base_generator",
+            "tokens": list(out.prompt_token_ids) + list(out.token_ids),
+            "token_ids": list(out.token_ids),
+            "response_length": len(out.token_ids),
+            "loss_mask": [1] * len(out.token_ids),
+            "rollout_log_probs": list(out.log_probs),
+            "log_probs": list(out.log_probs),
+            "prompt": out.prompt_text,
+            "response": out.response,
+        }
         return out.response
-

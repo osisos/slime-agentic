@@ -73,6 +73,8 @@ class Solver:
         }
 
         turns = []
+        base_tool_ios = []
+        executor_tool_ios = []
         total_token_count = 0
 
         # ── Plan (independent training sequence #0) ──
@@ -120,11 +122,19 @@ class Solver:
                     question, context, sub_goal, tool_name,
                     self.planner.toolbox_metadata, step_count=step_count,
                 )
+                executor_turn = self.executor.last_command_generation_turn
+                if executor_turn:
+                    executor_tool_ios.append(executor_turn)
+                    total_token_count += len(executor_turn["tokens"])
             except Exception as e:
                 logger.warning("[step %d] executor.generate_tool_command failed: %s", step_count, e)
                 tool_command = f"Error generating command: {e}"
 
             execution_result = await self.executor.execute_command(tool_name, tool_command, self._tools_dir)
+            base_tool_turn = self.executor.last_tool_generation_turn
+            if base_tool_turn:
+                base_tool_ios.append(base_tool_turn)
+                total_token_count += len(base_tool_turn["tokens"])
             memory.add_action(step_count, tool_name, sub_goal, tool_command, execution_result)
             logger.debug("[step %d] execution_result: %s", step_count, execution_result)
 
@@ -147,6 +157,7 @@ class Solver:
 
             trajectory["steps"].append({
                 "step_count": step_count,
+                "step_prompt": next_step.prompt_text,
                 "next_step": next_step.response,
                 "tool_name": tool_name,
                 "sub_goal": sub_goal,
@@ -209,4 +220,6 @@ class Solver:
             loss_mask=cat_loss_mask,
             final_output=final_output_text,
             turns=turns,
+            base_tool_ios=base_tool_ios,
+            executor_tool_ios=executor_tool_ios,
         )
