@@ -272,17 +272,24 @@ async def run_eval(
         max_new_tokens=max_new_tokens,
         enable_thinking=False,
     )
-    # Coder model: verifier / python_coder / rewarder
+    # Coder model: python_coder uses a lower-but-nonzero temperature for code generation.
     coder_engine = SGLangEngine(
         url=coder_url,
         tokenizer=tokenizer,
-        sampling_params=sampling_params,
+        sampling_params={**sampling_params, "temperature": 0.1},
+        max_new_tokens=max_new_tokens,
+    )
+    # Verifier/rewarder should be deterministic.
+    verifier_engine = SGLangEngine(
+        url=coder_url,
+        tokenizer=tokenizer,
+        sampling_params={**sampling_params, "temperature": 0.0},
         max_new_tokens=max_new_tokens,
     )
     rewarder_engine = SGLangEngine(
         url=coder_url,
         tokenizer=tokenizer,
-        sampling_params={},
+        sampling_params={"temperature": 0.0},
         max_new_tokens=2048,
     )
 
@@ -290,7 +297,7 @@ async def run_eval(
         "default":        planner_engine,
         "planner":        planner_engine,
         "executor":       planner_engine,
-        "verifier":       coder_engine,
+        "verifier":       verifier_engine,
         "base_generator": planner_engine,
         "python_coder":   coder_engine,
         "final_output":   planner_engine,
