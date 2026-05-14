@@ -73,7 +73,7 @@ def custom_convert(args, samples):
 
         turns = []
         turns.extend(meta.get("turns") or [])
-        turns.extend(meta.get("executor_tool_ios") or [])
+        # turns.extend(meta.get("executor_tool_ios") or [])
         turns.extend(meta.get("base_tool_ios") or [])
         if not turns:
             continue
