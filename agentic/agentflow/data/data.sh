@@ -10,5 +10,5 @@ export MODELSCOPE_CACHE='/root/autodl-tmp/data'
 source /etc/network_turbo
 
 # 4. 执行下载命令
-modelscope download --model Qwen/Qwen2.5-1.5B
 modelscope download --model Qwen/Qwen2.5-3B-Instruct
+modelscope download --model Qwen/Qwen3.5-4B

@@ -1,134 +1,73 @@
 #!/bin/bash
-# AgentFlow local top-8 evaluation script for a 24G setup.
-# Uses separate local model/server instances:
-#   planner/executor/base_generator/final_output -> PLANNER_PORT
-#   python_coder/verifier/rewarder               -> CODER_PORT
+# ---------------------------------------------------------
+# RTX 5090 一键全自动后台评估脚本
+# ---------------------------------------------------------
 
-set -e
+export NCCL_IGNORE_CPU_AFFINITY=1
+export TORCH_CUDA_ARCH_LIST="9.0"
 
-# ── Config ───────────────────────────────────────────────────────────────────
+# 1. 暴力清理历史残留进程，防止端口被占用
+echo "🧹 清理旧进程..."
+fuser -k 30000/tcp 2>/dev/null || true
+fuser -k 30002/tcp 2>/dev/null || true
+sleep 2
 
-MODEL_PATH=${MODEL_PATH:-"/home/kael/data/model_cache/models/Qwen/Qwen2.5-3B-Instruct"}
-TOKENIZER_PATH=${TOKENIZER_PATH:-"/home/kael/data/model_cache/models/Qwen/Qwen2.5-3B-Instruct"}
-MODEL_CODER=${MODEL_CODER:-"/home/kael/data/model_cache/models/Qwen/Qwen2.5-Coder-3B-Instruct"}
-
-EVAL_DATA=(
-    aime /data/aime-2024/aime-2024.jsonl
-)
-
-OUTPUT=${OUTPUT:-"$(dirname "$0")/eval_24G_results.json"}
-TRAJECTORY_DIR=${TRAJECTORY_DIR:-""}
-
-TP=${TP:-1}
-MEM_FRACTION=${MEM_FRACTION:-0.7}
-CTX_LEN=${CTX_LEN:-32768}
-CONCURRENCY=${CONCURRENCY:-16}
-MAX_STEPS=${MAX_STEPS:-5}
-
-TEMPERATURE=${TEMPERATURE:-0.7}
-TOP_P=${TOP_P:-0.95}
-MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-4096}
-SAMPLES_PER_PROMPT=${SAMPLES_PER_PROMPT:-8}
-
-# Debug limit for prompts, not total attempts. 0 = no limit.
-NUM_SAMPLES=${NUM_SAMPLES:-0}
-
-# Run only one sample by zero-based dataset index. Empty = all samples.
-IDX=${IDX:-""}
-
-PLANNER_PORT=${PLANNER_PORT:-30000}
-CODER_PORT=${CODER_PORT:-30002}
-AUTO_START=${AUTO_START:-1}
-
-# ── Environment ───────────────────────────────────────────────────────────────
-
+# 2. 路径配置
+MODEL_PATH="/root/autodl-tmp/data/models/Qwen/Qwen2.5-3B-Instruct"
+MODEL_CODER="/root/autodl-tmp/data/models/Qwen/Qwen3.5-4B"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 SLIME_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
-
 export PYTHONPATH="/root/Megatron-LM/:${SCRIPT_DIR}:${SLIME_ROOT}:${PYTHONPATH:-}"
 
-# ── Python args ───────────────────────────────────────────────────────────────
+# 3. 在后台独立启动 Planner 模型 (规避 5090 报错的参数)
+echo "🚀 正在后台拉起 Planner 模型 (端口 30000)..."
+python3 -m sglang.launch_server \
+  --model-path "${MODEL_PATH}" \
+  --port 30000 \
+  --attention-backend triton \
+  --disable-cuda-graph \
+  --mem-fraction-static 0.3 \
+  --trust-remote-code > planner.log 2>&1 &
 
-PY_ARGS=(
-    --tokenizer  "${TOKENIZER_PATH}"
-    --eval-data  "${EVAL_DATA[@]}"
-    --input-key  prompt
-    --label-key  label
-    --output     "${OUTPUT}"
-    --concurrency "${CONCURRENCY}"
-    --max-steps  "${MAX_STEPS}"
-    --temperature "${TEMPERATURE}"
-    --top-p       "${TOP_P}"
-    --max-new-tokens "${MAX_NEW_TOKENS}"
-    --samples-per-prompt "${SAMPLES_PER_PROMPT}"
-    --tp          "${TP}"
-    --mem-fraction "${MEM_FRACTION}"
-    --ctx-len     "${CTX_LEN}"
-    --planner-port  "${PLANNER_PORT}"
-    --coder-port    "${CODER_PORT}"
-)
+# 4. 在后台独立启动 Coder 模型 (规避 5090 报错的参数)
+echo "🚀 正在后台拉起 Coder 模型 (端口 30002)..."
+python3 -m sglang.launch_server \
+  --model-path "${MODEL_CODER}" \
+  --port 30002 \
+  --attention-backend triton \
+  --disable-cuda-graph \
+  --mem-fraction-static 0.1 \
+  --trust-remote-code > coder.log 2>&1 &
 
-if [ "${AUTO_START}" = "1" ]; then
-    PY_ARGS+=(--model "${MODEL_PATH}" --coder-model "${MODEL_CODER}" --start-servers)
-else
-    PY_ARGS+=(
-        --planner-url  "http://127.0.0.1:${PLANNER_PORT}/generate"
-        --coder-url    "http://127.0.0.1:${CODER_PORT}/generate"
-    )
-fi
+# 5. 智能等待：检测端口是否存活
+echo "⏳ 等待模型加载到显存... (大约需要1到3分钟，请勿退出)"
+while ! (echo > /dev/tcp/127.0.0.1/30000) >/dev/null 2>&1; do sleep 3; done
+echo "✅ Planner (30000) 就绪！"
+while ! (echo > /dev/tcp/127.0.0.1/30002) >/dev/null 2>&1; do sleep 3; done
+echo "✅ Coder (30002) 就绪！"
 
-if [ -n "${TRAJECTORY_DIR}" ]; then
-    PY_ARGS+=(--trajectory-dir "${TRAJECTORY_DIR}")
-fi
+# 6. 开始评估
+echo "🎯 服务全部上线，开始执行评估..."
+python3 "${SCRIPT_DIR}/eval_agentflow.py" \
+    --tokenizer  "${MODEL_PATH}" \
+    --eval-data  aime /data/aime-2024/aime-2024.jsonl \
+    --input-key  prompt \
+    --label-key  label \
+    --output     "$(dirname "$0")/eval_24G_results.json" \
+    --concurrency 16 \
+    --max-steps  5 \
+    --temperature 0.7 \
+    --top-p       0.95 \
+    --max-new-tokens 4096 \
+    --samples-per-prompt 8 \
+    --tp          1 \
+    --planner-port 30000 \
+    --coder-port   30002 \
+    --planner-url  "http://127.0.0.1:30000/generate" \
+    --coder-url    "http://127.0.0.1:30002/generate"
 
-if [ "${NUM_SAMPLES}" -gt 0 ] 2>/dev/null; then
-    PY_ARGS+=(--num-samples "${NUM_SAMPLES}")
-fi
-
-if [ -n "${IDX}" ]; then
-    PY_ARGS+=(--idx "${IDX}")
-fi
-
-if [ "${AUTO_START}" != "1" ]; then
-    echo "============================================================"
-    echo " 手动模式：请确保两个 SGLang 服务器已在运行："
-    echo "   Base/Planner 服务器 : port ${PLANNER_PORT}"
-    echo "   Coder        服务器 : port ${CODER_PORT}"
-    echo ""
-    echo " 快速启动示例："
-    echo "   python -m sglang.launch_server \\"
-    echo "     --model-path ${MODEL_PATH} --port ${PLANNER_PORT} \\"
-    echo "     --tp ${TP} --mem-fraction-static ${MEM_FRACTION} \\"
-    echo "     --context-length ${CTX_LEN} --trust-remote-code &"
-    echo ""
-    echo "   python -m sglang.launch_server \\"
-    echo "     --model-path ${MODEL_CODER} --port ${CODER_PORT} \\"
-    echo "     --tp ${TP} --mem-fraction-static ${MEM_FRACTION} \\"
-    echo "     --context-length ${CTX_LEN} --trust-remote-code &"
-    echo "============================================================"
-    echo ""
-fi
-
-# ── Run ───────────────────────────────────────────────────────────────────────
-
-echo "▶ 开始 24G local top-${SAMPLES_PER_PROMPT} 评估..."
-echo "  Planner模型: ${MODEL_PATH}"
-echo "  Coder模型  : ${MODEL_CODER}"
-echo "  Tokenizer  : ${TOKENIZER_PATH}"
-echo "  输出文件   : ${OUTPUT}"
-echo "  TP         : ${TP}"
-echo "  Planner端口: ${PLANNER_PORT}"
-echo "  Coder端口  : ${CODER_PORT}"
-echo "  并发数     : ${CONCURRENCY}"
-echo "  最大步数   : ${MAX_STEPS}"
-echo "  温度       : ${TEMPERATURE}"
-echo "  每题采样数 : ${SAMPLES_PER_PROMPT}"
-if [ -n "${IDX}" ]; then
-    echo "  单条样本   : ${IDX}"
-fi
-echo ""
-
-python3 "${SCRIPT_DIR}/eval_agentflow.py" "${PY_ARGS[@]}"
-
-echo ""
-echo "✓ 24G local top-${SAMPLES_PER_PROMPT} 评估完成，结果保存至：${OUTPUT}"
+# 7. 评估完成后自动杀掉后台模型，释放显存
+echo "🛑 评估结束，正在关闭后台模型服务..."
+fuser -k 30000/tcp 2>/dev/null || true
+fuser -k 30002/tcp 2>/dev/null || true
+echo "🎉 完美收工！"
