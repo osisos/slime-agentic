@@ -2,6 +2,7 @@ import os
 import requests
 
 def download_file(url, target_path):
+    target_path = os.path.abspath(os.path.expanduser(target_path))
     print(f"正在下载: {url}")
     print(f"保存至: {target_path}")
     try:
@@ -27,11 +28,11 @@ BASE_MIRROR = "https://hf-mirror.com/datasets"
 tasks = [
     {
         "url": f"{BASE_MIRROR}/zhuzilin/aime-2024/resolve/main/aime-2024.jsonl",
-        "dest": "/data/aime-2024/aime-2024.jsonl"
+        "dest": "~/data/aime-2024/aime-2024.jsonl"
     },
     {
         "url": f"{BASE_MIRROR}/zhuzilin/dapo-math-17k/resolve/main/dapo-math-17k.jsonl",
-        "dest": "/data/dapo-math-17k/dapo-math-17k.jsonl"
+        "dest": "~/data/dapo-math-17k/dapo-math-17k.jsonl"
     }
 ]
 
