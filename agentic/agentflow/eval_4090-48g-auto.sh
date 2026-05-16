@@ -104,28 +104,40 @@ TEMPERATURE=0.7
 TOP_P=0.95
 MAX_NEW_TOKENS=4096
 SAMPLES_PER_PROMPT=8
+# 只评测数据集中的某一个题目；空字符串表示评测全部。下标从 0 开始。
+IDX=${IDX:-""}
 
 export PYTHONPATH="/root/Megatron-LM/:${SCRIPT_DIR}:${SLIME_ROOT}:${PYTHONPATH:-}"
 
 echo "   (本次运行目录：${RUN_DIR})"
 echo "   (轨迹目录：${TRAJECTORY_DIR})"
 echo "   (评测日志：${EVAL_LOG})"
+if [ -n "${IDX}" ]; then
+    echo "   (只评测单题 idx=${IDX})"
+fi
 
-python3 "${SCRIPT_DIR}/eval_agentflow.py" \
-    --tokenizer "$TOKENIZER_PATH" \
-    --eval-data "${EVAL_DATA[@]}" \
-    --input-key prompt \
-    --label-key label \
-    --output "$OUTPUT" \
-    --concurrency "$CONCURRENCY" \
-    --max-steps "$MAX_STEPS" \
-    --temperature "$TEMPERATURE" \
-    --top-p "$TOP_P" \
-    --max-new-tokens "$MAX_NEW_TOKENS" \
-    --samples-per-prompt "$SAMPLES_PER_PROMPT" \
-    --trajectory-dir "$TRAJECTORY_DIR" \
-    --planner-url "http://127.0.0.1:${PLANNER_PORT}/generate" \
-    --coder-url "http://127.0.0.1:${CODER_PORT}/generate" 2>&1 | tee "$EVAL_LOG"
+PY_ARGS=(
+    --tokenizer "$TOKENIZER_PATH"
+    --eval-data "${EVAL_DATA[@]}"
+    --input-key prompt
+    --label-key label
+    --output "$OUTPUT"
+    --concurrency "$CONCURRENCY"
+    --max-steps "$MAX_STEPS"
+    --temperature "$TEMPERATURE"
+    --top-p "$TOP_P"
+    --max-new-tokens "$MAX_NEW_TOKENS"
+    --samples-per-prompt "$SAMPLES_PER_PROMPT"
+    --trajectory-dir "$TRAJECTORY_DIR"
+    --planner-url "http://127.0.0.1:${PLANNER_PORT}/generate"
+    --coder-url "http://127.0.0.1:${CODER_PORT}/generate"
+)
+
+if [ -n "${IDX}" ]; then
+    PY_ARGS+=(--idx "$IDX")
+fi
+
+python3 "${SCRIPT_DIR}/eval_agentflow.py" "${PY_ARGS[@]}" 2>&1 | tee "$EVAL_LOG"
 
 echo "🎉 评测全部完成！结果已保存至：$OUTPUT"
 echo "🧾 轨迹与 rewarder 审计输出已保存至：$TRAJECTORY_DIR"
