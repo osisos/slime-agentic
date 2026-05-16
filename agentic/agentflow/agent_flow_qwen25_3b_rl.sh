@@ -169,7 +169,13 @@ OPTIMIZER_ARGS=(
 )
 
 WANDB_ARGS=()
-SWANLAB_ARGS=()
+
+SWANLAB_ARGS=(
+   --use-swanlab
+   --swanlab-project AgentFlow_pro
+   --swanlab-experiment-name AgentFlow_pro-Qwen25-7B-RL
+   --swanlab-mode cloud
+)
 
 SGLANG_ARGS=(
    --rollout-num-gpus-per-engine 1

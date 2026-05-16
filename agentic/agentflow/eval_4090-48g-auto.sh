@@ -28,7 +28,7 @@ PLANNER_PORT=30000
 CODER_PORT=30002
 
 MEM_FRACTION=0.3
-CTX_LEN=16384
+CTX_LEN=32768
 CONCURRENCY=8
 # ────────────────────────────────────────────────────────────────────────
 
@@ -65,7 +65,6 @@ python3 -m sglang.launch_server \
   --tp 1 \
   --mem-fraction-static "$MEM_FRACTION" \
   --context-length "$CTX_LEN" \
-  --disable-cuda-graph \
   --max-prefill-tokens "$CTX_LEN" \
   --max-running-requests "$CONCURRENCY" \
   --trust-remote-code > "$PLANNER_LOG" 2>&1 &
@@ -82,7 +81,6 @@ python3 -m sglang.launch_server \
   --tp 1 \
   --mem-fraction-static "$MEM_FRACTION" \
   --context-length "$CTX_LEN" \
-  --disable-cuda-graph \
   --max-prefill-tokens "$CTX_LEN" \
   --max-running-requests "$CONCURRENCY" \
   --trust-remote-code > "$CODER_LOG" 2>&1 &
