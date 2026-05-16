@@ -43,6 +43,16 @@ class SGLangEngine:
         if max_new_tokens is not None:
             self.sampling_params["max_new_tokens"] = max_new_tokens
 
+    @staticmethod
+    def _format_chatml_without_default_system(messages: list[dict[str, str]]) -> str:
+        prompt_parts = []
+        for message in messages:
+            role = message.get("role", "user")
+            content = message.get("content", "")
+            prompt_parts.append(f"<|im_start|>{role}\n{content}<|im_end|>\n")
+        prompt_parts.append("<|im_start|>assistant\n")
+        return "".join(prompt_parts)
+
     async def generate(
         self,
         messages: list[dict[str, str]],
@@ -54,12 +64,7 @@ class SGLangEngine:
         """
         params = sampling_params if sampling_params is not None else self.sampling_params
 
-        prompt_text = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=self.enable_thinking,
-        )
+        prompt_text = self._format_chatml_without_default_system(messages)
         prompt_token_ids = self.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
 
         payload = {
@@ -83,5 +88,4 @@ class SGLangEngine:
             log_probs=log_probs,
             finish_reason=finish_reason,
         )
-
 

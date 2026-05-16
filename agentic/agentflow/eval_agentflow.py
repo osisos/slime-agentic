@@ -234,7 +234,13 @@ async def _eval_one(
         pred = _extract_pred(final_output)
 
         exact_match = bool(pred and label and pred == label)
+        rewarder_input = {
+            "question": question,
+            "model_response": final_output,
+            "groundtruth": label,
+        }
         rewarder_trace = None
+        rewarder_output = None
         rewarder_error = None
         rewarder_skipped_reason = None
 
@@ -248,6 +254,7 @@ async def _eval_one(
                     model_response=final_output,
                     groundtruth=label,
                 )
+                rewarder_output = rewarder_trace.get("output")
                 score = 1.0 if exact_match else float(rewarder_trace["score"])
             except Exception as exc:
                 logger.warning("[%d/%d] Rewarder exception: %s", progress_idx + 1, total, exc)
@@ -273,6 +280,8 @@ async def _eval_one(
             "exact_match": exact_match,
             "full_response": out.response,
             "solver_finish_reason": out.finish_reason,
+            "rewarder_input": rewarder_input,
+            "rewarder_output": rewarder_output,
             "rewarder": rewarder_trace,
             "rewarder_error": rewarder_error,
             "rewarder_skipped_reason": rewarder_skipped_reason,

@@ -15,6 +15,15 @@ class Verifier:
         self.tools_metadata = tools_metadata
 
     async def verificate_context(self, question: str, query_analysis: str, step_count: int, memory: Memory) -> Any:
+        memory_actions = memory.get_actions()
+        verifier_input = {
+            "question": question,
+            "available_tools": self.available_tools,
+            "tools_metadata": self.tools_metadata,
+            "initial_analysis": query_analysis,
+            "memory_actions": memory_actions,
+            "step_count": step_count,
+        }
 
         prompt_memory_verification = f"""
 Task: Evaluate if the current memory is complete and accurate enough to answer the query, or if more tools are needed.
@@ -24,7 +33,7 @@ Context:
 - **Available Tools:** {self.available_tools}
 - **Toolbox Metadata:** {self.tools_metadata}
 - **Initial Analysis:** {query_analysis}
-- **Memory (Tools Used & Results):** {memory.get_actions()}
+- **Memory (Tools Used & Results):** {memory_actions}
 
 Instructions:
 1.  Review the query, initial analysis, and memory.
@@ -45,6 +54,15 @@ IMPORTANT: The response must end with either "Conclusion: STOP" or "Conclusion: 
         logger.debug("verifier response: %s", verifier_out.response)
         analysis, conclusion = self.parse_conclusion(verifier_out.response)
         logger.debug("verifier conclusion: %s", conclusion)
+        verifier_out.audit = {
+            "input": verifier_input,
+            "prompt": prompt_memory_verification,
+            "prompt_text": verifier_out.prompt_text,
+            "response": verifier_out.response,
+            "analysis": analysis,
+            "conclusion": conclusion,
+            "finish_reason": verifier_out.finish_reason,
+        }
         return analysis, conclusion, verifier_out
 
     def parse_conclusion(self, response: str) -> tuple[str, str]:

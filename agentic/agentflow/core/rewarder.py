@@ -24,6 +24,11 @@ class Rewarder:
         return 0.0
 
     async def judge(self, question: str, model_response: str, groundtruth: str) -> dict:
+        rewarder_input = {
+            "question": question,
+            "model_response": model_response,
+            "groundtruth": groundtruth,
+        }
         query_prompt = f"""You are a strict math answer evaluator.
 
 **Task:** Read the Model Response, extract its final answer, and determine if it strictly matches the Ground Truth.
@@ -54,6 +59,12 @@ VERDICT: False"""
         score = self._score_from_response(response)
 
         return {
+            "input": rewarder_input,
+            "output": {
+                "response": response,
+                "score": score,
+                "finish_reason": out.finish_reason,
+            },
             "question": question,
             "model_response": model_response,
             "groundtruth": groundtruth,

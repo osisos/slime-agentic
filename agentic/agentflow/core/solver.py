@@ -144,13 +144,17 @@ class Solver:
             )
 
             # ── Verifier (not included in training sequences); used only to decide whether to continue ──
+            verifier_audit = None
+            verifier_error = None
             try:
-                _, conclusion, _ = await self.verifier.verificate_context(
+                _, conclusion, verifier_out = await self.verifier.verificate_context(
                     question, analysis.response, step_count=step_count, memory=memory,
                 )
+                verifier_audit = getattr(verifier_out, "audit", None)
             except Exception as e:
                 logger.warning("[step %d] verifier failed: %s", step_count, e)
                 conclusion = "STOP"
+                verifier_error = str(e)
 
             logger.debug("[step %d] conclusion: %s", step_count, conclusion)
             response_text += f"\n===== [verifier] conclusion={conclusion} =====\n"
@@ -165,6 +169,8 @@ class Solver:
                 "tool_command": tool_command,
                 "execution_result": execution_result,
                 "conclusion": conclusion,
+                "verifier": verifier_audit,
+                "verifier_error": verifier_error,
             })
 
             if conclusion == "STOP":
