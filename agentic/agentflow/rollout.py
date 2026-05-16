@@ -124,6 +124,7 @@ async def generate(args: Any, sample: Sample, sampling_params: dict[str, Any], e
         tokenizer=state.tokenizer,
         sampling_params=sampling_params,
         max_new_tokens=4096,
+        enable_thinking=False,
     )
     try:
         engine_map = {
@@ -218,6 +219,7 @@ async def reward_func(args: Any, sample: Sample, **kwargs) -> dict:
         tokenizer=state.tokenizer,
         sampling_params={},
         max_new_tokens=2048,
+        enable_thinking=False,
     )
     rewarder = Rewarder(llm_engine=engine)
 

@@ -233,6 +233,7 @@ async def run_eval(
         tokenizer=tokenizer,
         sampling_params={},
         max_new_tokens=512,
+        enable_thinking=False,
     )
     rewarder = Rewarder(llm_engine=rewarder_engine)
     semaphore = asyncio.Semaphore(concurrency)

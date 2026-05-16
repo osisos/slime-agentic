@@ -330,6 +330,7 @@ async def run_eval(
         tokenizer=tokenizer,
         sampling_params={**sampling_params, "temperature": 0.1},
         max_new_tokens=max_new_tokens,
+        enable_thinking=False,
     )
     # Verifier/rewarder should be deterministic.
     verifier_engine = SGLangEngine(
@@ -337,12 +338,14 @@ async def run_eval(
         tokenizer=tokenizer,
         sampling_params={**sampling_params, "temperature": 0.0},
         max_new_tokens=max_new_tokens,
+        enable_thinking=False,
     )
     rewarder_engine = SGLangEngine(
         url=coder_url,
         tokenizer=tokenizer,
         sampling_params={"temperature": 0.0},
         max_new_tokens=2048,
+        enable_thinking=False,
     )
 
     engine_map = {

@@ -53,6 +53,26 @@ class SGLangEngine:
         prompt_parts.append("<|im_start|>assistant\n")
         return "".join(prompt_parts)
 
+    def _format_messages(self, messages: list[dict[str, str]]) -> str:
+        if hasattr(self.tokenizer, "apply_chat_template"):
+            try:
+                return self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=self.enable_thinking,
+                )
+            except TypeError:
+                return self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            except Exception:
+                pass
+
+        return self._format_chatml_without_default_system(messages)
+
     async def generate(
         self,
         messages: list[dict[str, str]],
@@ -64,7 +84,7 @@ class SGLangEngine:
         """
         params = sampling_params if sampling_params is not None else self.sampling_params
 
-        prompt_text = self._format_chatml_without_default_system(messages)
+        prompt_text = self._format_messages(messages)
         prompt_token_ids = self.tokenizer(prompt_text, add_special_tokens=False)["input_ids"]
 
         payload = {
@@ -88,4 +108,3 @@ class SGLangEngine:
             log_probs=log_probs,
             finish_reason=finish_reason,
         )
-
