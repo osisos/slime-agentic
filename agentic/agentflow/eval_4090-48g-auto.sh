@@ -6,6 +6,19 @@ export NCCL_IGNORE_CPU_AFFINITY=1
 export TORCH_CUDA_ARCH_LIST="9.0"
 
 set -e
+set -o pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+SLIME_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
+
+RUN_TAG=${RUN_TAG:-"$(date +%Y%m%d_%H%M%S)"}
+RUN_DIR=${RUN_DIR:-"${SCRIPT_DIR}/eval_runs/eval_4090-48g-auto_${RUN_TAG}"}
+TRAJECTORY_DIR=${TRAJECTORY_DIR:-"${RUN_DIR}/trajectories"}
+PLANNER_LOG=${PLANNER_LOG:-"${RUN_DIR}/planner_server.log"}
+CODER_LOG=${CODER_LOG:-"${RUN_DIR}/coder_server.log"}
+EVAL_LOG=${EVAL_LOG:-"${RUN_DIR}/eval_stdout_stderr.log"}
+
+mkdir -p "${RUN_DIR}" "${TRAJECTORY_DIR}"
 
 # ── 1. 核心黄金参数配置 ──────────────────────────────────────────────────
 MODEL_PATH=${MODEL_PATH:-"/cloud/cloud-ssd1/models/Qwen2.5-3B-Instruct"}
@@ -55,11 +68,11 @@ python3 -m sglang.launch_server \
   --disable-cuda-graph \
   --max-prefill-tokens "$CTX_LEN" \
   --max-running-requests "$CONCURRENCY" \
-  --trust-remote-code > planner_server.log 2>&1 &
+  --trust-remote-code > "$PLANNER_LOG" 2>&1 &
 PLANNER_PID=$!
 
 wait_for_server "$PLANNER_PORT" "Planner"
-echo "   (Planner 日志已输出至 planner_server.log)"
+echo "   (Planner 日志已输出至 ${PLANNER_LOG})"
 
 
 echo "📦 [3/4] 正在后台启动 Coder 模型 (4B)..."
@@ -72,11 +85,11 @@ python3 -m sglang.launch_server \
   --disable-cuda-graph \
   --max-prefill-tokens "$CTX_LEN" \
   --max-running-requests "$CONCURRENCY" \
-  --trust-remote-code > coder_server.log 2>&1 &
+  --trust-remote-code > "$CODER_LOG" 2>&1 &
 CODER_PID=$!
 
 wait_for_server "$CODER_PORT" "Coder"
-echo "   (Coder 日志已输出至 coder_server.log)"
+echo "   (Coder 日志已输出至 ${CODER_LOG})"
 
 # ── 5. 运行评测脚本 ──────────────────────────────────────────────────────
 echo "🎯 [4/4] 所有后端服务已就绪，开始运行 AIME 评测..."
@@ -85,16 +98,18 @@ echo "🎯 [4/4] 所有后端服务已就绪，开始运行 AIME 评测..."
 # 请确保下面这些评测用的参数符合你的原始需求
 TOKENIZER_PATH="${MODEL_PATH}"
 EVAL_DATA=(aime /cloud/cloud-ssd1/data/aime-2024/aime-2024.jsonl)
-OUTPUT="$(dirname "$0")/eval_32g_top8_results.json"
+OUTPUT=${OUTPUT:-"${RUN_DIR}/eval_4090-48g-auto_results.json"}
 MAX_STEPS=5
 TEMPERATURE=0.7
 TOP_P=0.95
 MAX_NEW_TOKENS=4096
 SAMPLES_PER_PROMPT=8
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
-SLIME_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
 export PYTHONPATH="/root/Megatron-LM/:${SCRIPT_DIR}:${SLIME_ROOT}:${PYTHONPATH:-}"
+
+echo "   (本次运行目录：${RUN_DIR})"
+echo "   (轨迹目录：${TRAJECTORY_DIR})"
+echo "   (评测日志：${EVAL_LOG})"
 
 python3 "${SCRIPT_DIR}/eval_agentflow.py" \
     --tokenizer "$TOKENIZER_PATH" \
@@ -108,8 +123,10 @@ python3 "${SCRIPT_DIR}/eval_agentflow.py" \
     --top-p "$TOP_P" \
     --max-new-tokens "$MAX_NEW_TOKENS" \
     --samples-per-prompt "$SAMPLES_PER_PROMPT" \
+    --trajectory-dir "$TRAJECTORY_DIR" \
     --planner-url "http://127.0.0.1:${PLANNER_PORT}/generate" \
-    --coder-url "http://127.0.0.1:${CODER_PORT}/generate"
+    --coder-url "http://127.0.0.1:${CODER_PORT}/generate" 2>&1 | tee "$EVAL_LOG"
 
 echo "🎉 评测全部完成！结果已保存至：$OUTPUT"
+echo "🧾 轨迹与 rewarder 审计输出已保存至：$TRAJECTORY_DIR"
 # 脚本运行到最后，会自动触发 trap 的 cleanup 函数，优雅关闭两个模型。

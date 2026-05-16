@@ -107,6 +107,17 @@ def _extract_pred(text: str) -> str:
     return lines[-1][:200] if lines else ""
 
 
+def _save_attempt_trace(trajectory_dir: str | None, trace: dict) -> None:
+    if not trajectory_dir:
+        return
+
+    trace_dir = Path(trajectory_dir) / "attempts"
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    file_name = f"idx_{int(trace['idx']):05d}_sample_{int(trace['sample_idx']):02d}.json"
+    trace_path = trace_dir / file_name
+    trace_path.write_text(json.dumps(trace, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 # ── SGLang server management ──────────────────────────────────────────────────
 
 def _wait_for_server(url: str, timeout: int = 300, interval: int = 5) -> bool:
@@ -176,6 +187,7 @@ async def _eval_one(
     sample_idx: int,
     total: int,
     display_idx: Optional[int] = None,
+    trajectory_dir: str | None = None,
 ) -> dict:
     async with semaphore:
         progress_idx = idx if display_idx is None else display_idx
@@ -183,7 +195,7 @@ async def _eval_one(
             out = await solver.solve(question, label=label)
         except Exception as exc:
             logger.warning("[%d/%d] Solver exception: %s", progress_idx + 1, total, exc)
-            return {
+            result = {
                 "idx": idx,
                 "sample_idx": sample_idx,
                 "question": question,
@@ -193,9 +205,15 @@ async def _eval_one(
                 "score": 0.0,
                 "error": str(exc),
             }
+            _save_attempt_trace(trajectory_dir, {
+                **result,
+                "trace_type": "agentflow_eval_attempt",
+                "solver_error": str(exc),
+            })
+            return result
 
         if out is None:
-            return {
+            result = {
                 "idx": idx,
                 "sample_idx": sample_idx,
                 "question": question,
@@ -205,28 +223,42 @@ async def _eval_one(
                 "score": 0.0,
                 "error": "solver returned None",
             }
+            _save_attempt_trace(trajectory_dir, {
+                **result,
+                "trace_type": "agentflow_eval_attempt",
+                "solver_error": "solver returned None",
+            })
+            return result
 
         final_output = out.final_output or ""
         pred = _extract_pred(final_output)
 
-        if pred and label and pred == label:
+        exact_match = bool(pred and label and pred == label)
+        rewarder_trace = None
+        rewarder_error = None
+        rewarder_skipped_reason = None
+
+        if exact_match:
             score = 1.0
+            rewarder_skipped_reason = "pred == label"
         else:
             try:
-                score = await rewarder.compute_reward(
+                rewarder_trace = await rewarder.judge(
                     question=question,
                     model_response=final_output,
                     groundtruth=label,
                 )
+                score = 1.0 if exact_match else float(rewarder_trace["score"])
             except Exception as exc:
                 logger.warning("[%d/%d] Rewarder exception: %s", progress_idx + 1, total, exc)
-                score = 0.0
+                rewarder_error = str(exc)
+                score = 1.0 if exact_match else 0.0
 
         logger.info(
             "[%d/%d sample=%d] score=%.1f | pred=%.40s | label=%.40s",
             progress_idx + 1, total, sample_idx + 1, score, pred, label,
         )
-        return {
+        result = {
             "idx": idx,
             "sample_idx": sample_idx,
             "question": question,
@@ -235,6 +267,17 @@ async def _eval_one(
             "final_output": final_output,
             "score": score,
         }
+        _save_attempt_trace(trajectory_dir, {
+            **result,
+            "trace_type": "agentflow_eval_attempt",
+            "exact_match": exact_match,
+            "full_response": out.response,
+            "solver_finish_reason": out.finish_reason,
+            "rewarder": rewarder_trace,
+            "rewarder_error": rewarder_error,
+            "rewarder_skipped_reason": rewarder_skipped_reason,
+        })
+        return result
 
 
 # ── Batch evaluation main coroutine ────────────────────────────────────────────
@@ -311,14 +354,15 @@ async def run_eval(
     )
     rewarder = Rewarder(llm_engine=rewarder_engine)
     semaphore = asyncio.Semaphore(concurrency)
-    total = len(samples)
+    total = len(samples) * samples_per_prompt
 
     tasks = [
         _eval_one(
             solver, rewarder,
             s["question"], s["label"],
             semaphore,
-            int(s.get("idx", i)), j, total, i,
+            int(s.get("idx", i)), j, total, i * samples_per_prompt + j,
+            trajectory_dir=trajectory_dir,
         )
         for i, s in enumerate(samples)
         for j in range(samples_per_prompt)

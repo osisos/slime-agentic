@@ -5,7 +5,25 @@ class Rewarder:
     def __init__(self, llm_engine):
         self.llm_engine = llm_engine
 
-    async def compute_reward(self, question: str, model_response: str, groundtruth: str) -> float:
+    @staticmethod
+    def _score_from_response(response: str) -> float:
+        match = re.search(r"VERDICT\s*:\s*(True|False)", response, re.IGNORECASE)
+        if match:
+            return 1.0 if match.group(1).lower() == "true" else 0.0
+
+        match = re.search(r"<true_false>\s*:?\s*(true|false)", response, re.IGNORECASE)
+        if match:
+            return 1.0 if match.group(1).lower() == "true" else 0.0
+
+        last_line = response.strip().splitlines()[-1].strip().lower() if response.strip() else ""
+        if last_line in ("true", "true.", "verdict: true"):
+            return 1.0
+        if last_line in ("false", "false.", "verdict: false"):
+            return 0.0
+
+        return 0.0
+
+    async def judge(self, question: str, model_response: str, groundtruth: str) -> dict:
         query_prompt = f"""You are a strict math answer evaluator.
 
 **Task:** Read the Model Response, extract its final answer, and determine if it strictly matches the Ground Truth.
@@ -33,19 +51,18 @@ VERDICT: False"""
         messages = [{"role": "user", "content": query_prompt}]
         out = await self.llm_engine.generate(messages)
         response = out.response.strip()
+        score = self._score_from_response(response)
 
-        match = re.search(r"VERDICT\s*:\s*(True|False)", response, re.IGNORECASE)
-        if match:
-            return 1.0 if match.group(1).lower() == "true" else 0.0
+        return {
+            "question": question,
+            "model_response": model_response,
+            "groundtruth": groundtruth,
+            "prompt": query_prompt,
+            "response": response,
+            "score": score,
+            "finish_reason": out.finish_reason,
+        }
 
-        match = re.search(r"<true_false>\s*:?\s*(true|false)", response, re.IGNORECASE)
-        if match:
-            return 1.0 if match.group(1).lower() == "true" else 0.0
-
-        last_line = response.strip().splitlines()[-1].strip().lower() if response.strip() else ""
-        if last_line in ("true", "true.", "verdict: true"):
-            return 1.0
-        if last_line in ("false", "false.", "verdict: false"):
-            return 0.0
-
-        return 0.0
+    async def compute_reward(self, question: str, model_response: str, groundtruth: str) -> float:
+        judgement = await self.judge(question, model_response, groundtruth)
+        return float(judgement["score"])
