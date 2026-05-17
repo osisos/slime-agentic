@@ -20,6 +20,7 @@ fi
 set -ex
 
 SAVE_TRAJECTORY=${SAVE_TRAJECTORY:-"0"}
+export SWANLAB_API_KEY=${SWANLAB_API_KEY:-"9T9qsYeuQqoVQeZno7JmW"}
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 SLIME_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
@@ -47,7 +48,7 @@ source "${SCRIPT_DIR}/../../scripts/models/qwen2.5-3B.sh"
 
 MODEL_PATH=${MODEL_PATH:-"/data/models/qwen25_3b"}
 REF_PATH=${REF_PATH:-"/data/models/qwen2.5_3b_dist/"}
-SAVE_PATH=${SAVE_PATH:-"/data/AgentFlow_Qwen25-3B-RL/"}
+SAVE_PATH=${SAVE_PATH:-"/root/data/models/AgentFlow_Qwen25-3B-RL/"}
 MODEL_CODER=${MODEL_CODER:-"/data/models/qwen4b"}
 
 IFS=',' read -r -a TRAIN_GPU_LIST <<< "${TRAIN_CUDA_VISIBLE_DEVICES}"
@@ -120,7 +121,7 @@ ROLLOUT_ARGS=(
    --reward-key score
    --num-epoch 1
    --rollout-batch-size 4
-   --n-samples-per-prompt 4
+   --n-samples-per-prompt 8
    --rollout-max-response-len 32768
    --rollout-temperature 0.7
    --global-batch-size 16
@@ -173,7 +174,7 @@ WANDB_ARGS=()
 SWANLAB_ARGS=(
    --use-swanlab
    --swanlab-project AgentFlow_pro
-   --swanlab-experiment-name AgentFlow_pro-Qwen25-7B-RL
+   --swanlab-experiment-name AgentFlow_pro-Qwen25-3B-RL
    --swanlab-mode cloud
 )
 
@@ -208,6 +209,7 @@ RUNTIME_ENV_JSON="{
     \"CUDA_DEVICE_MAX_CONNECTIONS\": \"1\",
     \"NCCL_NVLS_ENABLE\": \"${HAS_NVLINK}\",
     \"SAVE_TRAJECTORY\": \"${SAVE_TRAJECTORY}\",
+    \"SWANLAB_API_KEY\": \"${SWANLAB_API_KEY}\",
     \"SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN\": \"1\"
   }
 }"
