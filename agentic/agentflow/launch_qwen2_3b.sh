@@ -72,7 +72,7 @@ cd "$SLIME_ROOT"
 CUDA_VISIBLE_DEVICES="${TRAIN_CUDA_VISIBLE_DEVICES}" \
 CODER_PORT="${CODER_PORT}" \
 SKIP_PROCESS_KILL=1 \
-    bash "${SCRIPT_DIR}/agent_flow_qwen25_3b_rl.sh" \
+    bash "${SCRIPT_DIR}/agentflow_qwen25_3b_rl.sh" \
     > "$LOG_DIR/train.log" 2>&1 &
 TRAIN_PID=$!
 log "训练进程 PID=$TRAIN_PID，日志: $LOG_DIR/train.log"

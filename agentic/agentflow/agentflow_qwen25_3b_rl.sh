@@ -1,10 +1,15 @@
 #!/bin/bash
 
 # AgentFlow Qwen2.5-3B RL on 2 H100/H800 GPUs.
+#
+# Environment split:
+#   - Slime/Ray/Megatron training runs in the caller's training environment.
+#   - External coder/rewarder/verifier inference runs in the SGLang conda env.
+#
 # GPU layout:
 #   - GPU 0/1: Megatron actor training with TP=2.
 #   - GPU 0  : Slime-managed Qwen2.5-3B rollout/planner engine.
-#   - GPU 1  : External Qwen 4B coder/rewarder/verifier engine on port 30002.
+#   - GPU 1  : External Qwen 4B coder/rewarder/verifier SGLang server on port 30002.
 
 if [ "${SKIP_PROCESS_KILL}" != "1" ]; then
     pkill -9 sglang
@@ -21,6 +26,7 @@ set -ex
 
 SAVE_TRAJECTORY=${SAVE_TRAJECTORY:-"0"}
 export SWANLAB_API_KEY=${SWANLAB_API_KEY:-"9T9qsYeuQqoVQeZno7JmW"}
+SGLANG_CONDA_ENV=${SGLANG_CONDA_ENV:-"sglang"}
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 SLIME_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
@@ -76,10 +82,12 @@ sglang:
         num_gpus: 1
 EOF
 
-echo "Starting external Qwen 4B coder on GPU ${CODER_GPU}, port ${CODER_PORT}..."
+echo "Starting external Qwen 4B coder in conda env '${SGLANG_CONDA_ENV}' on GPU ${CODER_GPU}, port ${CODER_PORT}..."
 (
   export CUDA_VISIBLE_DEVICES="${CODER_GPU}"
-  python3 -m sglang.launch_server \
+  export SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1
+  conda run -n "${SGLANG_CONDA_ENV}" --no-capture-output \
+    python3 -m sglang.launch_server \
     --model-path "${MODEL_CODER}" \
     --port "${CODER_PORT}" \
     --tp 1 \
