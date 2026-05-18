@@ -4,12 +4,12 @@
 #
 # Environment split:
 #   - Slime/Ray/Megatron training runs in the caller's training environment.
-#   - External coder/rewarder/verifier inference runs in the SGLang conda env.
+#   - External coder/rewarder/verifier inference is started by launch_qwen2_3b.sh.
 #
 # GPU layout:
 #   - GPU 0/1: Megatron actor training with TP=2.
 #   - GPU 0  : Slime-managed Qwen2.5-3B rollout/planner engine.
-#   - GPU 1  : External Qwen 4B coder/rewarder/verifier SGLang server on port 30002.
+#   - GPU 1  : Reserved for the external Qwen 4B coder/rewarder/verifier SGLang server.
 
 if [ "${SKIP_PROCESS_KILL}" != "1" ]; then
     pkill -9 sglang
@@ -26,7 +26,6 @@ set -ex
 
 SAVE_TRAJECTORY=${SAVE_TRAJECTORY:-"0"}
 export SWANLAB_API_KEY=${SWANLAB_API_KEY:-"9T9qsYeuQqoVQeZno7JmW"}
-SGLANG_CONDA_ENV=${SGLANG_CONDA_ENV:-"sglang"}
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 SLIME_ROOT="$(cd -- "${SCRIPT_DIR}/../.." &>/dev/null && pwd)"
@@ -55,14 +54,6 @@ source "${SCRIPT_DIR}/../../scripts/models/qwen2.5-3B.sh"
 MODEL_PATH=${MODEL_PATH:-"/data/models/qwen25_3b"}
 REF_PATH=${REF_PATH:-"/data/models/qwen2.5_3b_dist/"}
 SAVE_PATH=${SAVE_PATH:-"/root/data/models/AgentFlow_Qwen25-3B-RL/"}
-MODEL_CODER=${MODEL_CODER:-"/data/models/qwen4b"}
-
-IFS=',' read -r -a TRAIN_GPU_LIST <<< "${TRAIN_CUDA_VISIBLE_DEVICES}"
-CODER_GPU=${CODER_GPU:-"${TRAIN_GPU_LIST[1]:-${TRAIN_GPU_LIST[0]}}"}
-CODER_PORT=${CODER_PORT:-30002}
-CODER_MEM_FRACTION=${CODER_MEM_FRACTION:-0.18}
-CODER_CTX_LEN=${CODER_CTX_LEN:-32768}
-CODER_LOG=${CODER_LOG:-"${SCRIPT_DIR}/coder_qwen4b_30002.log"}
 
 # Reserve GPU 1 from Slime rollout placement so the external 4B coder can stay resident.
 SGLANG_CONFIG=${SGLANG_CONFIG:-"${SCRIPT_DIR}/sglang_qwen25_3b_2gpu_with_coder.yaml"}
@@ -81,38 +72,6 @@ sglang:
       - worker_type: placeholder
         num_gpus: 1
 EOF
-
-echo "Starting external Qwen 4B coder in conda env '${SGLANG_CONDA_ENV}' on GPU ${CODER_GPU}, port ${CODER_PORT}..."
-(
-  export CUDA_VISIBLE_DEVICES="${CODER_GPU}"
-  export SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1
-  conda run -n "${SGLANG_CONDA_ENV}" --no-capture-output \
-    python3 -m sglang.launch_server \
-    --model-path "${MODEL_CODER}" \
-    --port "${CODER_PORT}" \
-    --tp 1 \
-    --mem-fraction-static "${CODER_MEM_FRACTION}" \
-    --context-length "${CODER_CTX_LEN}" \
-    --trust-remote-code
-) > "${CODER_LOG}" 2>&1 &
-CODER_PID=$!
-
-cleanup() {
-    if kill -0 "${CODER_PID}" >/dev/null 2>&1; then
-        kill "${CODER_PID}" >/dev/null 2>&1 || true
-    fi
-}
-trap cleanup EXIT
-
-echo "Waiting for coder service on 127.0.0.1:${CODER_PORT}..."
-until (echo > "/dev/tcp/127.0.0.1/${CODER_PORT}") >/dev/null 2>&1; do
-    if ! kill -0 "${CODER_PID}" >/dev/null 2>&1; then
-        echo "Coder service exited early. See log: ${CODER_LOG}" >&2
-        exit 1
-    fi
-    sleep 3
-done
-echo "Coder service is ready."
 
 CKPT_ARGS=(
    --hf-checkpoint "${MODEL_PATH}"
