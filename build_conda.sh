@@ -3,11 +3,12 @@
 set -ex
 
 # create conda
-yes '' | "${SHELL}" <(curl -L micro.mamba.pm/install.sh)
-export PS1=tmp
+export MAMBA_ROOT_PREFIX="${MAMBA_ROOT_PREFIX:-/root/micromamba}"
+mkdir -p /usr/local/bin "$MAMBA_ROOT_PREFIX"
+curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj -C /usr/local/bin --strip-components=1 bin/micromamba
+eval "$(micromamba shell hook --shell bash)"
 mkdir -p /root/.cargo/
 touch /root/.cargo/env
-source ~/.bashrc
 
 micromamba create -n slime python=3.12 pip -c conda-forge -y
 micromamba activate slime
