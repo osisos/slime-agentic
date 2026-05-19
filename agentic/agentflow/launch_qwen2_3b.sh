@@ -10,12 +10,12 @@ export SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1
 # 提高文件描述符上限，避免 "Too many open files"
 ulimit -n 65536 2>/dev/null || true
 
-LOG_DIR=${LOG_DIR:-"/tmp/agentflow_qwen2_3b_logs"}
+LOG_DIR=${LOG_DIR:-"/root/blockdata/tmp/agentflow_qwen2_3b_logs"}
 mkdir -p "$LOG_DIR"
 
 # 默认使用 2 张 GPU：GPU 0/1 用于训练和 Slime rollout；GPU 1 同时常驻外部 coder 服务。
 TRAIN_CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-"0,1"}
-MODEL_CODER=${MODEL_CODER:-"/data/models/qwen4b"}
+MODEL_CODER=${MODEL_CODER:-"/root/blockdata/models/Qwen2.5-Coder-7B-Instruct-AWQ"}
 SGLANG_CONDA_ENV=${SGLANG_CONDA_ENV:-"sglang"}
 CODER_GPU=${CODER_GPU:-"1"}
 CODER_PORT=${CODER_PORT:-30002}

@@ -51,9 +51,9 @@ echo "HAS_NVLINK: $HAS_NVLINK (detected $NVLINK_COUNT NVLink references)"
 
 source "${SCRIPT_DIR}/../../scripts/models/qwen2.5-3B.sh"
 
-MODEL_PATH=${MODEL_PATH:-"/data/models/qwen25_3b"}
-REF_PATH=${REF_PATH:-"/data/models/qwen2.5_3b_dist/"}
-SAVE_PATH=${SAVE_PATH:-"/root/data/models/AgentFlow_Qwen25-3B-RL/"}
+MODEL_PATH=${MODEL_PATH:-"/root/blockdata/models/Qwen2.5-3B-Instruct"}
+REF_PATH=${REF_PATH:-"/root/blockdata/models/qwen2.5_3b_dist/"} # 改 dist
+SAVE_PATH=${SAVE_PATH:-"/root/data/models/AgentFlow_Qwen25-3B-RL/"} # 这个需要改
 
 # Reserve GPU 1 from Slime rollout placement so the external 4B coder can stay resident.
 SGLANG_CONFIG=${SGLANG_CONFIG:-"${SCRIPT_DIR}/sglang_qwen25_3b_2gpu_with_coder.yaml"}
@@ -81,7 +81,7 @@ CKPT_ARGS=(
 )
 
 ROLLOUT_ARGS=(
-   --prompt-data /data/dapo-math-17k/dapo-math-17k.jsonl
+   --prompt-data /root/blockdata/data/dapo-math-17k/dapo-math-17k.jsonl
    --input-key prompt
    --label-key label
    --rollout-shuffle
@@ -97,7 +97,7 @@ ROLLOUT_ARGS=(
 
 EVAL_ARGS=(
    --eval-interval 20
-   --eval-prompt-data aime /data/aime-2024/aime-2024.jsonl
+   --eval-prompt-data aime /root/blockdata/data/aime-2024/aime-2024.jsonl
    --n-samples-per-eval-prompt 1
    --eval-max-response-len 32768
    --eval-top-p 0.95
