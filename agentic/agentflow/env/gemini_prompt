@@ -209,4 +209,7 @@ fi
 3B脚本的训练流程在
 @agentflow_qwen25_3b_rl.sh 和 @launch_qwen2_3b.sh
 7B脚本的训练流程在
-@agentflow_qwen25_7b_rl_v2.sh 和 @launch_qwen2_7b.sh
+@agentflow_qwen25_7b_rl_v2.sh 和 @launch.sh 中
+
+你需要参照7B模型的训练过程修改3B模型的训练脚本，尤其是，3B模型的训练过程它在启动底层的 agentflow_qwen25_3b_rl.sh 后，直接执行 wait_port 等待 30002 端口就绪。这意味着 SGLang 的启动逻辑被封装在了最底层的训练脚本中。
+，你需要也像7B一样，单独启动，并且使用单独的sglang环境
